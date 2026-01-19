@@ -15,3 +15,6 @@ cf-create: create-lambda-package
 
 cf-update:
 	aws cloudformation update-stack --stack-name $(NAME) --template-body file://$(NAME).yaml --capabilities CAPABILITY_IAM --parameters file://parameters.json
+
+lambda-update: create-lambda-package
+	aws lambda update-function-code --function-name $(NAME)-OmicsRunEventProcessorFunction --s3-bucket ${DATA_LAKE_BUCKET} --s3-key ${BUCKET_PREFIX}/lambda-package.zip --publish

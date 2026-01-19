@@ -9,7 +9,11 @@ Parameters:
     Description: Email address to send notifications for failed Lambda executions
   ApiServer:
     Type: String
-    Description: NGS360 API Server URL
+    Description: GA4GH WES API Server URL
+  ApiServerAuthToken:
+    Type: String
+    NoEcho: true
+    Description: Authentication token for GA4GH WES API Server
   DataLakeBucket:
     Type: String
     Description: S3 Bucket name for storing omics run event data
@@ -32,6 +36,15 @@ Parameters:
       Description: Subnet ID for the Lambda function
 
 Resources:
+  ApiServerAuthTokenSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: NGS360 GA4GH WES API Server credentials
+      SecretString: !Sub |
+        {
+          "AUTH_TOKEN": "${ApiServerAuthToken}"
+        }
+
   DeadLetterQueue:
     Type: AWS::SNS::Topic
     Properties:
@@ -73,6 +86,16 @@ Resources:
                   - s3:PutObject
                 Resource:
                   - !Sub arn:aws:s3:::${DataLakeBucket}/*
+        - PolicyName: SecretsManagerAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                Resource:
+                  - !Ref ApiServerAuthTokenSecret
 
   OmicsRunEventProcessorFunction:
     Type: AWS::Lambda::Function
@@ -90,7 +113,8 @@ Resources:
           DATA_LAKE_BUCKET: !Ref DataLakeBucket
           S3_PREFIX: !Ref BucketPrefix
           VERBOSE_LOGGING: !Ref VerboseLogging
-  
+          ENV_SECRETS: !Ref ApiServerAuthTokenSecret
+
       Handler: lambda.lambda_handler
       LoggingConfig: 
         LogFormat: Text
