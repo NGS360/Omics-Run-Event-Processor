@@ -6,7 +6,6 @@ import os
 import logging
 
 import boto3
-from botocore.exceptions import ClientError
 import requests
 
 
@@ -29,7 +28,7 @@ def flatten(event):
     return flat_event
 
 
-def setup_logging():
+def setup_logging(event=None):
     ''' Sets up logging configuration '''
     VERBOSE_LOGGING = os.environ.get(
         'VERBOSE_LOGGING', 'false'
@@ -45,8 +44,8 @@ def setup_logging():
     # Reduce boto3 logging noise
     logging.getLogger('boto3').setLevel(logging.INFO)
     logging.getLogger('botocore').setLevel(logging.INFO)
-
-    logger.info("Received event: %s", json.dumps(event))
+    if event:
+        logger.info("Received event: %s", json.dumps(event))
     return logger
 
 
@@ -56,7 +55,7 @@ def lambda_handler(event, context):
 
     Calls NGS360 API Service with run event information
     '''
-    logger = setup_logging()
+    logger = setup_logging(event)
     s3 = boto3.client('s3')
 
     API_SERVER = os.environ['API_SERVER']
@@ -78,25 +77,20 @@ def lambda_handler(event, context):
     json_data = json.dumps(flat_event)
 
     # Upload to S3
-    try:
-        s3.put_object(
-            Bucket=DATA_LAKE_BUCKET,
-            Key=f'{S3_PREFIX}/{file_name}',
-            Body=json_data,
-            ContentType='application/json'
-        )
-    except ClientError as e:
-        raise ClientError(
-            f'Error uploading to S3: {str(e)}',
-            operation_name="s3::put_object"
-        ) from e
+    s3.put_object(
+        Bucket=DATA_LAKE_BUCKET,
+        Key=f'{S3_PREFIX}/{file_name}',
+        Body=json_data,
+        ContentType='application/json',
+        ServerSideEncryption='AES256'
+    )
 
     # Call NGS360 API
     api_url = f'{API_SERVER}/api/v1/omics/run-event'
     headers = {'Content-Type': 'application/json'}
     requests.post(api_url, headers=headers, data=json_data, timeout=10)
 
-    msg = f'Event processed, {json_data} -> {S3_PREFIX}/{file_name}'
+    msg = f'Event processed, {json_data} -> s3://{DATA_LAKE_BUCKET}/{S3_PREFIX}/{file_name}'
     logger.info(msg)
     return {
         'statusCode': 200,
