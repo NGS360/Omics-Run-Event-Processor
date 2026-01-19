@@ -7,7 +7,7 @@ create-lambda-package:
 	cp ../lambda.py . && \
 	pip3 install -r ../requirements.txt -t . && \
 	zip -r ../lambda-package.zip .
-	aws s3 cp lambda-package.zip s3://$(DATA_LAKE_BUCKET)/$(BUCKET_PREFIX)/lambda-package.zip --sse
+	aws s3 cp lambda-package.zip s3://${DATA_LAKE_BUCKET}/${BUCKET_PREFIX}/lambda-package.zip --sse
 
 cf-create: create-lambda-package
 	
