@@ -143,9 +143,9 @@ Resources:
       Description: EventBridge Rule to trigger Omics Run Event Processor Lambda Function
       EventPattern:
         source:
-          - omics.run
+          - aws.omics
         detail-type:
-          - Omics Run State Change
+          - Run Status Change
       State: ENABLED
       Targets:
         - Arn: !GetAtt OmicsRunEventProcessorFunction.Arn
