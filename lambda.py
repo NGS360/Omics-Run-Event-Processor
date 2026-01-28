@@ -10,6 +10,7 @@ import requests
 
 secrets_client = boto3.client('secretsmanager')
 s3 = boto3.client('s3')
+omics_client = boto3.client('omics')
 
 
 def flatten(event):
@@ -70,6 +71,205 @@ def get_auth_token():
     return None
 
 
+def get_log_urls(run_id, region, logger):
+    """
+    Get CloudWatch log URLs for an AWS HealthOmics run.
+
+    Args:
+        run_id: AWS HealthOmics run ID
+        region: AWS region
+        logger: Logger instance
+
+    Returns:
+        Dictionary containing log URLs or empty dict if not available
+    """
+    try:
+        # Get run details from AWS HealthOmics
+        response = omics_client.get_run(id=run_id)
+        logger.debug(f"Got run details for {run_id}: {response}")
+
+        # Check if logLocation exists in the response
+        if 'logLocation' not in response:
+            logger.warning(f"No logLocation found in response for run {run_id}")
+            return {}
+
+        log_location = response.get('logLocation', {})
+
+        # Check if runLogStream exists
+        if 'runLogStream' not in log_location:
+            logger.warning(f"No runLogStream found in logLocation for run {run_id}")
+            return {}
+
+        run_log_stream = log_location['runLogStream']
+
+        # CloudWatch logs format: arn:aws:logs:region:account:log-group:name:log-stream:name
+        if not run_log_stream.startswith('arn:aws:logs:'):
+            logger.warning(f"runLogStream doesn't match expected CloudWatch ARN format: {run_log_stream}")
+            return {}
+
+        # Extract log group and log stream
+        parts = run_log_stream.split(':')
+        if len(parts) < 8:
+            logger.warning(f"Invalid CloudWatch ARN format: {run_log_stream}")
+            return {}
+
+        log_group = parts[6]
+
+        # Extract the log stream
+        arn_parts = run_log_stream.split(':log-stream:')
+        if len(arn_parts) != 2:
+            logger.warning(f"Cannot extract log stream from ARN: {run_log_stream}")
+            return {}
+
+        log_stream = arn_parts[1]  # This should be "run/{run_id}"
+
+        # Construct CloudWatch log URL with proper URL encoding
+        run_log_url = (
+            f"https://{region}.console.aws.amazon.com/cloudwatch/home"
+            f"?region={region}#logsV2:log-groups/log-group/"
+            f"{log_group.replace('/', '%2F')}"
+            f"/log-events/{log_stream.replace('/', '%2F')}"
+        )
+
+        # Extract run ID from log stream for task logs
+        run_id_parts = log_stream.split('/')
+        if len(run_id_parts) < 2 or run_id_parts[0] != 'run':
+            logger.warning(f"Cannot extract run ID from log stream: {log_stream}")
+            return {'run_log': run_log_url}
+
+        actual_run_id = run_id_parts[1]
+
+        # Create task log URL
+        task_log_stream = f"task/{actual_run_id}/main"
+        task_log_url = (
+            f"https://{region}.console.aws.amazon.com/cloudwatch/home"
+            f"?region={region}#logsV2:log-groups/log-group/"
+            f"{log_group.replace('/', '%2F')}"
+            f"/log-events/{task_log_stream.replace('/', '%2F')}"
+        )
+
+        # Create manifest log URL
+        manifest_log_stream = f"manifest/run/{actual_run_id}"
+        manifest_log_url = (
+            f"https://{region}.console.aws.amazon.com/cloudwatch/home"
+            f"?region={region}#logsV2:log-groups/log-group/"
+            f"{log_group.replace('/', '%2F')}"
+            f"/log-events/{manifest_log_stream.replace('/', '%2F')}"
+        )
+
+        # Return all log URLs
+        return {
+            'run_log': run_log_url,
+            'task_logs': {'main': task_log_url},
+            'manifest_log': manifest_log_url
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting log URLs for run {run_id}: {str(e)}")
+        return {}
+
+
+def fetch_output_mapping(output_uri, run_id, logger):
+    """
+    Fetch output mapping from S3.
+
+    Args:
+        output_uri: S3 URI of the output directory
+        run_id: AWS HealthOmics run ID
+        logger: Logger instance
+
+    Returns:
+        Dictionary mapping output names to S3 URIs or empty dict if not available
+    """
+    try:
+        # Parse S3 URI
+        if not output_uri.startswith('s3://'):
+            logger.warning(f"Output URI {output_uri} is not an S3 URI")
+            return {}
+
+        # Remove s3:// prefix and split into bucket and key
+        path = output_uri[5:]
+        parts = path.split('/', 1)
+        if len(parts) < 2:
+            logger.warning(f"Invalid S3 URI format: {output_uri}")
+            return {}
+
+        bucket = parts[0]
+        key_prefix = parts[1]
+
+        # Ensure key prefix ends with a slash
+        if not key_prefix.endswith('/'):
+            key_prefix += '/'
+
+        # The specific path to the outputs.json file
+        output_json_key = f"{key_prefix}{run_id}/logs/outputs.json"
+
+        # Try to fetch the output mapping file
+        try:
+            logger.info(f"Attempting to fetch output mapping from s3://{bucket}/{output_json_key}")
+            response = s3.get_object(Bucket=bucket, Key=output_json_key)
+            content = response['Body'].read().decode('utf-8')
+            mapping = json.loads(content)
+
+            # Validate mapping format
+            if isinstance(mapping, dict):
+                # Convert CWL-style output format to a simpler key-value mapping
+                result = {}
+                for key, value in mapping.items():
+                    if isinstance(value, dict) and 'location' in value:
+                        # Extract the S3 URI from the location field
+                        result[key] = value['location']
+                    elif (isinstance(value, list) and
+                          all(isinstance(item, dict) and 'location' in item for item in value)):
+                        # For array outputs, extract all locations
+                        result[key] = [item['location'] for item in value]
+                    else:
+                        # For other types, just convert to string
+                        result[key] = str(value)
+
+                logger.info(f"Successfully loaded output mapping with {len(result)} entries")
+                return result
+            else:
+                logger.warning(f"Output mapping file s3://{bucket}/{output_json_key} is not a dictionary")
+
+        except s3.exceptions.NoSuchKey:
+            logger.info(f"Output mapping file s3://{bucket}/{output_json_key} not found")
+        except json.JSONDecodeError:
+            logger.warning(f"Failed to parse output mapping file s3://{bucket}/{output_json_key} as JSON")
+        except Exception as e:
+            logger.warning(f"Error accessing s3://{bucket}/{output_json_key}: {str(e)}")
+
+        # If we get here, we couldn't find a valid output mapping file
+        logger.warning(f"No valid output mapping file found for run {run_id}")
+        return {}
+
+    except Exception as e:
+        logger.error(f"Error fetching output mapping for run {run_id}: {str(e)}")
+        return {}
+
+
+def ensure_json_serializable(obj):
+    """
+    Ensure an object is JSON serializable by converting non-serializable types.
+
+    Args:
+        obj: Any Python object
+
+    Returns:
+        JSON serializable version of the object
+    """
+    if isinstance(obj, dict):
+        return {k: ensure_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [ensure_json_serializable(item) for item in obj]
+    elif isinstance(obj, datetime):
+        return obj.isoformat() if hasattr(obj, 'isoformat') else str(obj)
+    elif isinstance(obj, (int, float, str, bool, type(None))):
+        return obj
+    else:
+        return str(obj)
+
+
 def lambda_handler(event, context):
     '''
     Main Entry Point for Lambda function
@@ -95,6 +295,39 @@ def lambda_handler(event, context):
     # Flatten the event JSON
     flat_event = flatten(event)
 
+    # Get the run status and ID
+    status = flat_event.get('status')
+    run_id = flat_event.get('runId')
+    region = flat_event.get('region', 'us-east-1')
+
+    # For finishing events (COMPLETED, FAILED, CANCELLED), add additional information
+    if status in ['COMPLETED', 'FAILED', 'CANCELLED'] and run_id:
+        logger.info(f"Processing {status} event for run {run_id}")
+
+        # Add log URLs for all finishing events
+        try:
+            log_urls = get_log_urls(run_id, region, logger)
+            if log_urls:
+                flat_event['log_urls'] = log_urls
+                logger.info(f"Added log URLs for run {run_id}")
+        except Exception as e:
+            logger.error(f"Error getting log URLs for run {run_id}: {str(e)}")
+
+        # For COMPLETED events only, add output mapping
+        if status == 'COMPLETED':
+            output_uri = flat_event.get('runOutputUri')
+            if output_uri:
+                try:
+                    output_mapping = fetch_output_mapping(output_uri, run_id, logger)
+                    if output_mapping:
+                        flat_event['output_mapping'] = output_mapping
+                        logger.info(f"Added output mapping for run {run_id}")
+                except Exception as e:
+                    logger.error(f"Error fetching output mapping for run {run_id}: {str(e)}")
+
+    # Ensure all values are JSON serializable
+    flat_event = ensure_json_serializable(flat_event)
+
     # Convert flattened dict to JSON string
     json_data = json.dumps(flat_event)
 
@@ -112,9 +345,17 @@ def lambda_handler(event, context):
     headers = {'Content-Type': 'application/json'}
     if AUTH_TOKEN:
         headers['Authorization'] = f'Bearer {AUTH_TOKEN}'
-    requests.post(api_url, headers=headers, data=json_data, timeout=10)
 
-    msg = f'Event processed, {json_data} -> s3://{DATA_LAKE_BUCKET}/{S3_PREFIX}/{file_name}'
+    try:
+        response = requests.post(api_url, headers=headers, data=json_data, timeout=10)
+        response.raise_for_status()
+        logger.info(f"Successfully sent event to API server: {response.status_code}")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error sending event to API server: {str(e)}")
+        # We don't want to fail the Lambda function if the API call fails
+        # The event is already archived in S3
+
+    msg = f'Event processed, status: {status} -> s3://{DATA_LAKE_BUCKET}/{S3_PREFIX}/{file_name}'
     logger.info(msg)
     return {
         'statusCode': 200,
