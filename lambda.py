@@ -202,7 +202,7 @@ def fetch_output_mapping(output_uri, run_id, logger):
             key_prefix += '/'
 
         # The specific path to the outputs.json file
-        output_json_key = f"{key_prefix}{run_id}/logs/outputs.json"
+        output_json_key = f"{key_prefix}logs/outputs.json"
 
         # Try to fetch the output mapping file
         try:
@@ -300,6 +300,9 @@ def lambda_handler(event, context):
     run_id = flat_event.get('runId')
     region = flat_event.get('region', 'us-east-1')
 
+
+    logging.info('checkpoint1')
+
     # For finishing events (COMPLETED, FAILED, CANCELLED), add additional information
     if status in ['COMPLETED', 'FAILED', 'CANCELLED'] and run_id:
         logger.info(f"Processing {status} event for run {run_id}")
@@ -331,6 +334,9 @@ def lambda_handler(event, context):
     # Convert flattened dict to JSON string
     json_data = json.dumps(flat_event)
 
+    logging.info('checkpoint2')
+    logging.info(json_data)
+
     # Upload to S3
     s3.put_object(
         Bucket=DATA_LAKE_BUCKET,
@@ -339,6 +345,9 @@ def lambda_handler(event, context):
         ContentType='application/json',
         ServerSideEncryption='AES256'
     )
+
+    logging.info('checkpoint3')
+    logging.info(json_data)
 
     # Call GA4GH WES API Server
     api_url = f'{API_SERVER}/internal/callbacks/omics-state-change'
