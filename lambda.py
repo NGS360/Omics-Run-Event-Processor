@@ -154,7 +154,8 @@ def get_log_urls(run_id, region, logger):
             if 'items' in tasks_response and tasks_response['items']:
                 task_logs = {}
                 for task in tasks_response['items']:
-                    task_id = task.get('id')
+                    # The field is 'taskId', not 'id'
+                    task_id = task.get('taskId')
                     task_name = task.get('name', 'unnamed')
                     if task_id:
                         # Create direct link to task log
