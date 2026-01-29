@@ -169,6 +169,31 @@ def get_log_urls(run_id, region, logger):
         return {}
 
 
+def get_run_tags(run_id, logger):
+    """
+    Get tags for an AWS HealthOmics run.
+
+    Args:
+        run_id: AWS HealthOmics run ID
+        logger: Logger instance
+
+    Returns:
+        Dictionary containing tags or empty dict if not available
+    """
+    try:
+        response = omics_client.get_run(id=run_id)
+        tags = response.get('tags', {})
+
+        if tags:
+            logger.info(f"Retrieved {len(tags)} tags for run {run_id}")
+        else:
+            logger.info(f"No tags found for run {run_id}")
+        return tags
+
+    except Exception as e:
+        logger.error(f"Error getting tags for run {run_id}: {str(e)}")
+        return {}
+
 def fetch_output_mapping(output_uri, run_id, logger):
     """
     Fetch output mapping from S3.
@@ -276,6 +301,7 @@ def lambda_handler(event, context):
 
     Calls NGS360 API Service with run event information
     '''
+    data = {}
     logger = setup_logging(event)
 
     API_SERVER = os.environ['API_SERVER']
@@ -294,12 +320,24 @@ def lambda_handler(event, context):
 
     # Flatten the event JSON
     flat_event = flatten(event)
+    data['omics_run_id'] = flat_event.get('runId')
+    data['status'] = flat_event.get('status')
+    data['event_time'] = flat_event.get('time')
+    data['event_id'] = flat_event.get('id')
 
     # Get the run status and ID
     status = flat_event.get('status')
     run_id = flat_event.get('runId')
     region = flat_event.get('region', 'us-east-1')
 
+    if run_id:
+        try:
+            tags = get_run_tags(run_id, logger)
+            if tags and 'WESRunId' in tags:
+                data['wes_run_id'] = tags['WESRunId']
+                logger.info(f"Added wes_run_id from WESRunId tag: {tags['WESRunId']}")
+        except Exception as e:
+            logger.error(f"Error getting tags for run {run_id}: {str(e)}")
 
     logging.info('checkpoint1')
 
@@ -311,7 +349,7 @@ def lambda_handler(event, context):
         try:
             log_urls = get_log_urls(run_id, region, logger)
             if log_urls:
-                flat_event['log_urls'] = log_urls
+                data['log_urls'] = log_urls
                 logger.info(f"Added log URLs for run {run_id}")
         except Exception as e:
             logger.error(f"Error getting log URLs for run {run_id}: {str(e)}")
@@ -323,16 +361,16 @@ def lambda_handler(event, context):
                 try:
                     output_mapping = fetch_output_mapping(output_uri, run_id, logger)
                     if output_mapping:
-                        flat_event['output_mapping'] = output_mapping
+                        data['output_mapping'] = output_mapping
                         logger.info(f"Added output mapping for run {run_id}")
                 except Exception as e:
                     logger.error(f"Error fetching output mapping for run {run_id}: {str(e)}")
 
     # Ensure all values are JSON serializable
-    flat_event = ensure_json_serializable(flat_event)
+    data = ensure_json_serializable(data)
 
     # Convert flattened dict to JSON string
-    json_data = json.dumps(flat_event)
+    json_data = json.dumps(data)
 
     logging.info('checkpoint2')
     logging.info(json_data)
@@ -354,6 +392,9 @@ def lambda_handler(event, context):
     headers = {'Content-Type': 'application/json'}
     if AUTH_TOKEN:
         headers['Authorization'] = f'Bearer {AUTH_TOKEN}'
+    #else: # TODO: Remove this line - testing purpose
+    #    headers['X-Internal-API-Key'] = 'testapikey' # TODO: Remove this line - testing purpose
+    logging.info(headers)
 
     try:
         response = requests.post(api_url, headers=headers, data=json_data, timeout=10)
