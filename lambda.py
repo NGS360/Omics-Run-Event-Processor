@@ -192,13 +192,16 @@ def get_log_urls(run_id, region, logger):
             
         # Try to find manifest log
         try:
-            # For manifest log, the format is manifest/run/{run_id}/{uuid}
-            # We need to list log streams to find the exact UUID
-            # For now, we'll include a base URL that users can navigate from
+            # For manifest log, we need to check if there's a UUID suffix
+            # For now, we'll provide a link to the CloudWatch console where users can search for the manifest log
+            # The format is typically manifest/run/{run_id}/{uuid}, but the UUID part varies
+            
+            # Link to the CloudWatch log group with a filter for this run's manifest logs
             manifest_log_base_url = (
                 f"https://{region}.console.aws.amazon.com/cloudwatch/home"
                 f"?region={region}#logsV2:log-groups/log-group/"
-                f"{log_group.replace('/', '%2F')}/log-events/manifest$252Frun$252F{actual_run_id}"
+                f"{log_group.replace('/', '%2F')}"
+                f"?logStreamNameFilter=manifest%2Frun%2F{actual_run_id}"
             )
             result['manifest_log_base_url'] = manifest_log_base_url
             logger.info(f"Added manifest log base URL for run {run_id}")
