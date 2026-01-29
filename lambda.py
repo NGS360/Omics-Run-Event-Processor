@@ -149,7 +149,7 @@ def get_log_urls(run_id, region, logger):
                 id=run_id,
                 maxResults=10  # Adjust as needed
             )
-            
+
             # Process task information
             if 'items' in tasks_response and tasks_response['items']:
                 task_logs = {}
@@ -167,7 +167,7 @@ def get_log_urls(run_id, region, logger):
                             f"/log-events/{task_log_stream.replace('/', '%2F')}"
                         )
                         task_logs[task_name] = task_log_url
-                
+
                 if task_logs:
                     result['task_logs'] = task_logs
                     logger.info(f"Added {len(task_logs)} task log URLs for run {run_id}")
@@ -189,13 +189,13 @@ def get_log_urls(run_id, region, logger):
                 f"{log_group.replace('/', '%2F')}"
             )
             result['task_logs_base_url'] = task_logs_base_url
-            
+
         # Try to find manifest log
         try:
             # For manifest log, we need to check if there's a UUID suffix
             # For now, we'll provide a link to the CloudWatch console where users can search for the manifest log
             # The format is typically manifest/run/{run_id}/{uuid}, but the UUID part varies
-            
+
             # Link to the CloudWatch log group with a filter for this run's manifest logs
             manifest_log_base_url = (
                 f"https://{region}.console.aws.amazon.com/cloudwatch/home"
