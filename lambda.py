@@ -139,30 +139,37 @@ def get_log_urls(run_id, region, logger):
 
         actual_run_id = run_id_parts[1]
 
-        # Create task log URL
-        task_log_stream = f"task/{actual_run_id}/main"
-        task_log_url = (
-            f"https://{region}.console.aws.amazon.com/cloudwatch/home"
-            f"?region={region}#logsV2:log-groups/log-group/"
-            f"{log_group.replace('/', '%2F')}"
-            f"/log-events/{task_log_stream.replace('/', '%2F')}"
-        )
+        # Initialize result with run log URL
+        result = {'run_log': run_log_url}
 
-        # Create manifest log URL
-        manifest_log_stream = f"manifest/run/{actual_run_id}"
-        manifest_log_url = (
-            f"https://{region}.console.aws.amazon.com/cloudwatch/home"
-            f"?region={region}#logsV2:log-groups/log-group/"
-            f"{log_group.replace('/', '%2F')}"
-            f"/log-events/{manifest_log_stream.replace('/', '%2F')}"
-        )
+        # Get additional run details to find task IDs
+        try:
+            # For task logs, we need to get the task ID from the run details
+            # The path is different: run/{run_id}/task/{task_id}
+            # For now, we'll use a placeholder that links to the run log group
+            # where users can navigate to the specific task logs
+            task_logs_base_url = (
+                f"https://{region}.console.aws.amazon.com/cloudwatch/home"
+                f"?region={region}#logsV2:log-groups/log-group/"
+                f"{log_group.replace('/', '%2F')}"
+            )
+            result['task_logs_base_url'] = task_logs_base_url
+            logger.info(f"Added task logs base URL for run {run_id}")
+            
+            # For manifest log, the format is manifest/run/{run_id}/{uuid}
+            # We'll include a base URL that users can navigate from
+            manifest_log_base_url = (
+                f"https://{region}.console.aws.amazon.com/cloudwatch/home"
+                f"?region={region}#logsV2:log-groups/log-group/"
+                f"{log_group.replace('/', '%2F')}/log-events/manifest$252Frun$252F{actual_run_id}"
+            )
+            result['manifest_log_base_url'] = manifest_log_base_url
+            logger.info(f"Added manifest log base URL for run {run_id}")
+        except Exception as e:
+            logger.warning(f"Error creating additional log URLs for run {run_id}: {str(e)}")
 
         # Return all log URLs
-        return {
-            'run_log': run_log_url,
-            'task_logs': {'main': task_log_url},
-            'manifest_log': manifest_log_url
-        }
+        return result
 
     except Exception as e:
         logger.error(f"Error getting log URLs for run {run_id}: {str(e)}")
