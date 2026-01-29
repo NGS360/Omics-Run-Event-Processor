@@ -31,7 +31,8 @@ The Lambda function is deployed in a VPC for secure communication with the NGS36
 - ✅ Event archival to S3 with AES-256 encryption
 - ✅ Callback integration with NGS360 API
 - ✅ JSON flattening for simplified event structure
-- ✅ Event enrichment with output file mapping and log URLs
+- ✅ Event enrichment with run tags, output file mapping, and log URLs
+- ✅ WES run ID extraction from run tags for API integration
 - ✅ Configurable verbose logging
 - ✅ VPC support for secure networking
 - ✅ Dead letter queue for error handling
@@ -162,7 +163,10 @@ Events from HealthOmics contain nested structures with run information, status, 
 The [`flatten()`](lambda.py:15) function processes the nested JSON into a single-level dictionary for easier querying and analysis in downstream systems.
 
 ### Enhanced Event Data
-For events with status COMPLETED, FAILED, or CANCELLED, the Lambda function adds:
+For all events, the Lambda function:
+- **Retrieves Tags**: Gets the run tags from AWS HealthOmics, including the `WESRunId` tag which is used to link the run to the corresponding WES run ID
+
+For events with status COMPLETED, FAILED, or CANCELLED, the Lambda function additionally adds:
 - **Log URLs**: Links to CloudWatch logs for the run, tasks, and manifest
 - **Output File Mapping**: For COMPLETED events, a mapping of output names to S3 URIs
 
