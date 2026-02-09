@@ -84,6 +84,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:PutObject
+                  - s3:GetObject
                 Resource:
                   - !Sub arn:aws:s3:::${DataLakeBucket}/*
         - PolicyName: SecretsManagerAccess
@@ -96,6 +97,16 @@ Resources:
                   - secretsmanager:DescribeSecret
                 Resource:
                   - !Ref ApiServerAuthTokenSecret
+        - PolicyName: OmicsAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - omics:GetRun
+                  - omics:ListRuns
+                  - omics:ListRunTasks
+                Resource: "*"
 
   OmicsRunEventProcessorFunction:
     Type: AWS::Lambda::Function

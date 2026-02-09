@@ -8,15 +8,16 @@ This serverless application monitors AWS HealthOmics workflow runs and processes
 
 1. **Captures** the event from EventBridge
 2. **Flattens** the nested JSON structure for easier analysis
-3. **Archives** the event to an S3 data lake with server-side encryption
-4. **Notifies** the NGS360 API server via callback endpoint
+3. **Enriches** the event with additional information (for completed/failed/cancelled events)
+4. **Archives** the event to an S3 data lake with server-side encryption
+5. **Notifies** the NGS360 API server via callback endpoint
 
 ## Architecture
 
 ```
 AWS HealthOmics → EventBridge → Lambda Function → S3 Data Lake
-                                      ↓
-                              NGS360 API Server
+                                       ↓
+                               NGS360 API Server
 ```
 
 The Lambda function is deployed in a VPC for secure communication with the NGS360 API server and includes:
@@ -30,6 +31,8 @@ The Lambda function is deployed in a VPC for secure communication with the NGS36
 - ✅ Event archival to S3 with AES-256 encryption
 - ✅ Callback integration with NGS360 API
 - ✅ JSON flattening for simplified event structure
+- ✅ Event enrichment with run tags, output file mapping, and log URLs
+- ✅ WES run ID extraction from run tags for API integration
 - ✅ Configurable verbose logging
 - ✅ VPC support for secure networking
 - ✅ Dead letter queue for error handling
@@ -147,7 +150,7 @@ Example EventBridge rule pattern:
 ```json
 {
   "source": ["aws.omics"],
-  "detail-type": ["Omics Run Status Change"]
+  "detail-type": ["Run Status Change"]
 }
 ```
 
@@ -157,7 +160,15 @@ Example EventBridge rule pattern:
 Events from HealthOmics contain nested structures with run information, status, and metadata.
 
 ### Flattened Event
-The [`flatten()`](lambda.py:12) function processes the nested JSON into a single-level dictionary for easier querying and analysis in downstream systems.
+The [`flatten()`](lambda.py:15) function processes the nested JSON into a single-level dictionary for easier querying and analysis in downstream systems.
+
+### Enhanced Event Data
+For all events, the Lambda function:
+- **Retrieves Tags**: Gets the run tags from AWS HealthOmics, including the `WESRunId` tag which is used to link the run to the corresponding WES run ID
+
+For events with status COMPLETED, FAILED, or CANCELLED, the Lambda function additionally adds:
+- **Log URLs**: Links to CloudWatch logs for the run, tasks, and manifest
+- **Output File Mapping**: For COMPLETED events, a mapping of output names to S3 URIs
 
 ### Storage Format
 Events are stored in S3 as:
@@ -173,7 +184,7 @@ POST {API_SERVER}/internal/callbacks/omics-state-change
 Content-Type: application/json
 ```
 
-The flattened event JSON is sent as the request body with a 10-second timeout.
+The enhanced event JSON is sent as the request body with a 10-second timeout.
 
 ## Development
 
@@ -227,7 +238,8 @@ Failed executions are sent to the SNS topic and email notifications are sent to 
 The Lambda execution role has permissions for:
 - VPC access (AWSLambdaVPCAccessExecutionRole)
 - SNS publish (dead letter queue)
-- S3 PutObject (data lake storage)
+- S3 PutObject and GetObject (data lake storage)
+- AWS HealthOmics API access (GetRun, ListRuns)
 
 ## Security
 
@@ -244,10 +256,17 @@ Default timeout is 900 seconds (15 minutes). Adjust in CloudFormation template i
 ### VPC Connectivity Issues
 Ensure the security group allows outbound HTTPS traffic to:
 - S3 (via VPC endpoint or NAT Gateway)
+- AWS HealthOmics API
 - NGS360 API Server
 
 ### API Callback Failures
 Check CloudWatch Logs for HTTP error responses. Verify API_SERVER URL and network connectivity.
+
+### Missing Output Mapping or Log URLs
+For COMPLETED events, check if the output mapping file exists at the expected S3 path:
+```
+s3://{bucket}/{prefix}/{run_id}/logs/outputs.json
+```
 
 ## Project Structure
 
