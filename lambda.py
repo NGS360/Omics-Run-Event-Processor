@@ -407,13 +407,18 @@ def submit_omics_run(event, context):
         logger.info(f"Processing workflow submission: wes_run_id={wes_run_id}, "
                     f"workflow_id={workflow_id}, workflow_version={workflow_version}")
 
-        # Set default output URI if not provided in workflow_engine_parameters
-        # Following the same logic as omics.py execute method
-        output_uri = None
+        # Validate that we have required parameters
         output_bucket = os.environ.get('DATA_LAKE_BUCKET')
         if not output_bucket:
             raise ValueError("DATA_LAKE_BUCKET environment variable is required for output storage")
 
+        role_arn = os.environ.get('OMICS_ROLE_ARN')
+        if not role_arn:
+            raise ValueError("OMICS_ROLE_ARN environment variable is required")
+
+        # Set default output URI if not provided in workflow_engine_parameters
+        # Following the same logic as omics.py execute method
+        output_uri = None
         if workflow_engine_params and 'outputUri' in workflow_engine_params:
             output_uri = workflow_engine_params['outputUri']
             logger.info(f"Using output URI from workflow_engine_parameters: {output_uri}")
@@ -424,7 +429,7 @@ def submit_omics_run(event, context):
         # Prepare Omics start_run parameters following omics.py format
         kwargs = {
             'workflowId': workflow_id,
-            'roleArn': os.environ.get('OMICS_ROLE_ARN'),
+            'roleArn': role_arn,
             'parameters': wes_params,
             'outputUri': output_uri,
             'name': f"wes-run-{wes_run_id}",
@@ -482,10 +487,6 @@ def submit_omics_run(event, context):
             for param in omics_engine_params:
                 if param in engine_params:
                     kwargs[param] = engine_params[param]
-
-        # Validate that we have required parameters
-        if not kwargs['roleArn']:
-            raise ValueError("OMICS_ROLE_ARN environment variable is required")
 
         # Log the API call parameters (same as omics.py)
         logger.info(f"Starting Omics run with parameters: {kwargs}")
