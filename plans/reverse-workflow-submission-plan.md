@@ -232,7 +232,7 @@ Parameters:
 
 #### A. Update OmicsExecutor
 
-**File:** `../BMS-NGS360-Deployment/GA4GH-WES-API-Service/src/wes_service/daemon/executors/omics.py`
+**File:** `GA4GH-WES-API-Service/src/wes_service/daemon/executors/omics.py`
 
 Replace direct Omics API calls with Lambda invocation:
 
