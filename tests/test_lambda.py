@@ -371,6 +371,7 @@ class TestEventRouting(unittest.TestCase):
         mock_submit_omics_run.return_value = {'statusCode': 200, 'omics_run_id': '123'}
 
         event = {
+            'source': 'ga4ghwes',
             'action': 'submit_workflow',
             'wes_run_id': 'test-run',
             'workflow_id': '123'

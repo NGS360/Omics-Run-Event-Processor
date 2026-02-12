@@ -727,7 +727,8 @@ def lambda_handler(event, context):
 
     try:
         # Method 1: Check for explicit workflow submission action
-        if event.get('action') == 'submit_workflow':
+        if (event.get('source') == 'ga4ghwes' and
+            event.get('action') == 'submit_workflow'):
             logger.info("Routing to workflow submission handler")
             return submit_omics_run(event, context)
 
