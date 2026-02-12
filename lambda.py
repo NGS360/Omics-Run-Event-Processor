@@ -371,13 +371,12 @@ def convert_file_path_to_s3(file_path):
         return file_path
 
 
-def convert_wes_params_to_omics(wes_params, workflow_type):
+def convert_wes_params_to_omics(wes_params):
     """
     Convert WES workflow parameters to Omics format.
 
     Args:
         wes_params: Dictionary of WES workflow parameters
-        workflow_type: Workflow type (e.g., 'CWL', 'WDL')
 
     Returns:
         Dictionary of Omics-formatted parameters
@@ -436,17 +435,21 @@ def validate_submission_request(event):
     """
     required_fields = ['action', 'wes_run_id', 'workflow_id']
 
+    # Make sure the event contains all required fields
     for field in required_fields:
         if field not in event:
             return False, f"Missing required field: {field}"
 
+    # The only supported action is 'submit_workflow' for now
     if event['action'] != 'submit_workflow':
         return False, f"Invalid action: {event['action']}"
 
+    # Validate workflow_id - it should be a non-empty string
     workflow_id = event.get('workflow_id', '')
     if not workflow_id or len(workflow_id) < 1:
         return False, f"Invalid workflow_id: {workflow_id}. Workflow ID is required"
 
+    # Validate wes_run_id - it should be a UUID string (36 characters)
     wes_run_id = event.get('wes_run_id', '')
     if len(wes_run_id) != 36:
         return False, f"Invalid wes_run_id format: {wes_run_id}. Must be 36 characters"
@@ -481,10 +484,11 @@ def submit_omics_run(event, context):
         workflow_engine_params = event.get('workflow_engine_parameters', {})
         tags = event.get('tags', {})
 
-        logger.info(f"Processing workflow submission: wes_run_id={wes_run_id}, workflow_id={workflow_id}, workflow_version={workflow_version}")
+        logger.info(f"Processing workflow submission: wes_run_id={wes_run_id}, "
+                    f"workflow_id={workflow_id}, workflow_version={workflow_version}")
 
         # Convert WES parameters to Omics format using the same logic as omics.py
-        omics_params = convert_wes_params_to_omics(wes_params, workflow_type)
+        omics_params = convert_wes_params_to_omics(wes_params)
         logger.info(f"Converted parameters for Omics: {json.dumps(omics_params, default=str)}")
 
         # Set default output URI if not provided in workflow_engine_parameters
