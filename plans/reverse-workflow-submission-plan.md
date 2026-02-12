@@ -308,7 +308,7 @@ def _invoke_lambda_submit(self, payload: Dict[str, Any]) -> Dict[str, Any]:
 
 #### B. Update WES API Configuration
 
-**File:** `../BMS-NGS360-Deployment/GA4GH-WES-API-Service/src/wes_service/config.py`
+**File:** `GA4GH-WES-API-Service/src/wes_service/config.py`
 
 Add Lambda configuration settings:
 
