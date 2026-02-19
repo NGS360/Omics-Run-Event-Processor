@@ -32,12 +32,11 @@ def batch_event_handler(event):
     """
     AWS Batch Event Handler
     """
-    logger.info(f"Received AWS Batch event: {event}")
-
     # Extract relevant information from the Batch event
     job_id = event.get('detail', {}).get('jobId')
     job_name = event.get('detail', {}).get('jobName')
     job_status = event.get('detail', {}).get('status')
+    log_stream_name = ''
 
     logger.info(
         f"Processing Batch job - ID: {job_id}, "
@@ -50,7 +49,6 @@ def batch_event_handler(event):
             log_stream_name = event['detail']['container']['logStreamName']
             logger.info(f"Log Stream Name: {log_stream_name}")
         else:
-            log_stream_name = ''
             logger.error("Unable to determine logStreamName")
 
     post_job(job_id, job_status, log_stream_name)
