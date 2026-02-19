@@ -16,6 +16,7 @@ from datetime import datetime
 sys.path.append('..')
 
 # Set up required environment variables before importing lambda module
+os.environ['NGS360_RESTAPI_SERVER'] = 'https://api.example.com'
 os.environ['API_SERVER'] = 'https://api.example.com'
 os.environ['DATA_LAKE_BUCKET'] = 'test-bucket'
 os.environ['S3_PREFIX'] = 'omics-run-events'
@@ -408,7 +409,10 @@ class TestBatchEventProcessing(unittest.TestCase):
             'detail': {
                 'jobId': 'asdf-1234',
                 'jobName': 'test-job',
-                'status': 'SUCCEEDED'
+                'status': 'SUCCEEDED',
+                'container': {
+                    'logStreamName': 'test-log-stream'
+                }
             }
         }
 

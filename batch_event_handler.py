@@ -1,6 +1,31 @@
+import requests
+import json
+import os
 from logger import get_logger
 
 logger = get_logger()
+
+
+def post_job(job_id, job_status, log_stream_name):
+    """ Post Batch job status to NGS360 REST API """
+    message_body = {
+        'job_id': job_id,
+        'job_status': job_status,
+        'log_stream_name': log_stream_name
+    }
+
+    headers = {'Content-Type': 'application/json'}
+    url = "%s/api/v0/jobs/%s" % (os.environ['NGS360_RESTAPI_SERVER'], job_id)
+
+    try:
+        logger.info("Sending %s to %s", message_body, url)
+        res = requests.put(url, headers=headers, data=json.dumps(message_body))
+        if res.status_code != 200:
+            logger.error("%s returned %s", url, res.status_code)
+    except requests.exceptions.RequestException as e:
+        logger.error(str(e))
+        return False
+    return True
 
 
 def batch_event_handler(event):
@@ -20,16 +45,15 @@ def batch_event_handler(event):
     )
 
     # Implement your logic to handle different job statuses
-    if job_status == 'SUCCEEDED':
-        logger.info(f"Batch job {job_id} succeeded.")
-        # Add your success handling code here
-    elif job_status == 'FAILED':
-        logger.error(f"Batch job {job_id} failed.")
-        # Add your failure handling code here
-    else:
-        logger.warning(f"Batch job {job_id} has an unhandled status: "
-                       f"{job_status}")
-        # Handle other statuses if necessary
+    if job_status in ('STARTING', 'RUNNING', 'SUCCEEDED', 'FAILED'):
+        if 'logStreamName' in event['detail']['container']:
+            log_stream_name = event['detail']['container']['logStreamName']
+            logger.info(f"Log Stream Name: {log_stream_name}")
+        else:
+            log_stream_name = ''
+            logger.error("Unable to determine logStreamName")
+
+    post_job(job_id, job_status, log_stream_name)
 
     return {
         'statusCode': 200,
