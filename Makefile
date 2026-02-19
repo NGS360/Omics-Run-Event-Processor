@@ -1,5 +1,5 @@
 NAME=ngs360-omics-run-event-processor
-STACK_NAME=ngs360-omics-run-event-pr-OmicsRunEventProcessorFu-BQJMqXfWNdMS
+STACK_NAME=ngs360-omics-run-event-processor-LambdaFunction-L3z8fJzoS4Dx
 BUCKET=bmsrd-ngs-omics
 BUCKET_PREFIX=omics-run-events
 
