@@ -395,5 +395,31 @@ class TestHelperFunctions(unittest.TestCase):
         self.assertEqual(flattened['source'], 'aws.omics')
 
 
+class TestBatchEventProcessing(unittest.TestCase):
+    """Test batch processing of EventBridge events."""
+
+    def test_lambda_handler_batch_events(self):
+        """Test processing of multiple EventBridge events in a batch."""
+
+        # Set up test parameters
+        event = {
+            'source': 'aws.batch',
+            'version': '0',
+            'detail': {
+                'jobId': 'asdf-1234',
+                'jobName': 'test-job',
+                'status': 'SUCCEEDED'
+            }
+        }
+
+        # Set up supporting mocks
+
+        # Test
+        response = lambda_func.lambda_handler(event, None)
+
+        # Check results
+        self.assertEqual(response['statusCode'], 200)
+
+
 if __name__ == '__main__':
     unittest.main()

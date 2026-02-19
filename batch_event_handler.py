@@ -30,3 +30,8 @@ def batch_event_handler(event):
         logger.warning(f"Batch job {job_id} has an unhandled status: "
                        f"{job_status}")
         # Handle other statuses if necessary
+
+    return {
+        'statusCode': 200,
+        'message': 'AWS Batch Event processed.',
+    }
