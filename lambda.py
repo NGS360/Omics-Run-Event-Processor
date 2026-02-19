@@ -241,6 +241,7 @@ def get_run_tags(run_id, logger):
         logger.error(f"Error getting tags for run {run_id}: {str(e)}")
         return {}
 
+
 def fetch_output_mapping(output_uri, run_id, logger):
     """
     Fetch output mapping from S3.
@@ -342,12 +343,104 @@ def ensure_json_serializable(obj):
         return str(obj)
 
 
-def lambda_handler(event, context):
-    '''
-    Main Entry Point for Lambda function
+def validate_submission_request(event):
+    """
+    Validate workflow submission request.
 
-    Calls NGS360 API Service with run event information
-    '''
+    Args:
+        event: Lambda event containing submission request
+
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    required_fields = ['action', 'wes_run_id', 'workflow_id', 'workflow_engine_parameters']
+
+    # Make sure the event contains all required fields
+    for field in required_fields:
+        if field not in event:
+            return False, f"Missing required field: {field}"
+    if 'outputUri' not in event.get('workflow_engine_parameters'):
+        return False, f"Missing required field: outputUri"
+
+    # The only supported action is 'submit_workflow' for now
+    if event['action'] != 'submit_workflow':
+        return False, f"Invalid action: {event['action']}"
+
+    # Validate workflow_id - it should be a non-empty string
+    workflow_id = event.get('workflow_id', '')
+    if not workflow_id or len(workflow_id) < 1:
+        return False, f"Invalid workflow_id: {workflow_id}. Workflow ID is required"
+
+    return True, None
+
+
+def submit_omics_run(event, context):
+    """
+    Handle workflow submission requests from GA4GH WES API.
+    Submits new workflows to AWS Omics using the same logic as the working omics.py.
+    """
+    logger = setup_logging(event)
+
+    try:
+        # Validate input parameters
+        is_valid, error_msg = validate_submission_request(event)
+        if not is_valid:
+            return {'statusCode': 400, 'error': 'ValidationError', 'message': error_msg}
+
+        # Extract parameters
+        wes_run_id = event['wes_run_id']
+        workflow_id = event['workflow_id']
+        workflow_engine_params = event.get('workflow_engine_parameters', {})
+
+        # Set output URI - use provided or default
+        output_uri = workflow_engine_params.get('outputUri')
+
+        # Build basic Omics parameters
+        kwargs = {
+            'workflowId': workflow_id,
+            'roleArn': os.environ['OMICS_ROLE_ARN'],
+            'parameters': event.get('parameters', {}),
+            'outputUri': output_uri,
+            'name': workflow_engine_params.get('name', f"wes-run-{wes_run_id}"),
+            'tags': {'WESRunId': wes_run_id, **event.get('tags', {})},
+            'retentionMode': 'REMOVE',
+            'storageType': 'DYNAMIC'
+        }
+
+        # Override name if provided in tags
+        if "Name" in kwargs['tags']:
+            kwargs['name'] = kwargs['tags']['Name']
+
+        # Add optional parameters if provided
+        if event.get('workflow_version'):
+            kwargs['workflowVersionName'] = event['workflow_version']
+        if 'cacheId' in workflow_engine_params:
+            kwargs['cacheId'] = workflow_engine_params['cacheId']
+
+        # Submit to Omics
+        response = omics_client.start_run(**kwargs)
+        omics_run_id = response['id']
+
+        logger.info(f"Started Omics run {omics_run_id} for WES run {wes_run_id}")
+
+        return {
+            'statusCode': 200,
+            'omics_run_id': omics_run_id,
+            'output_uri': output_uri,
+            'message': 'Workflow submitted successfully',
+            'wes_run_id': wes_run_id
+        }
+
+    except Exception as e:
+        logger.error(f"Error submitting workflow: {str(e)}")
+        return {'statusCode': 500, 'error': 'OmicsSubmissionError', 'message': str(e)}
+
+
+def update_status(event, context):
+    """
+    Handle EventBridge state change events (existing functionality).
+    This contains all the original lambda_handler logic.
+    """
     data = {}
     logger = setup_logging(event)
 
@@ -377,6 +470,8 @@ def lambda_handler(event, context):
     run_id = flat_event.get('runId')
     region = flat_event.get('region', 'us-east-1')
 
+    # When will run_id be missing? In the current EventBridge events, runId is always present.
+    # But we add this check just in case for future changes or different event types.
     if run_id:
         try:
             tags = get_run_tags(run_id, logger)
@@ -386,9 +481,7 @@ def lambda_handler(event, context):
         except Exception as e:
             logger.error(f"Error getting tags for run {run_id}: {str(e)}")
 
-    logging.info('checkpoint1')
-
-    # For finishing events (COMPLETED, FAILED, CANCELLED), add additional information
+    # If a run completes, get additional information e.g. log URLs, output mapping
     if status in ['COMPLETED', 'FAILED', 'CANCELLED'] and run_id:
         logger.info(f"Processing {status} event for run {run_id}")
 
@@ -419,9 +512,6 @@ def lambda_handler(event, context):
     # Convert flattened dict to JSON string
     json_data = json.dumps(data)
 
-    logging.info('checkpoint2')
-    logging.info(json_data)
-
     # Upload to S3
     s3.put_object(
         Bucket=DATA_LAKE_BUCKET,
@@ -431,16 +521,10 @@ def lambda_handler(event, context):
         ServerSideEncryption='AES256'
     )
 
-    logging.info('checkpoint3')
-    logging.info(json_data)
-
     # Call GA4GH WES API Server
     api_url = f'{API_SERVER}/internal/callbacks/omics-state-change'
     headers = {'Content-Type': 'application/json'}
-    # if AUTH_TOKEN:
-    #    headers['Authorization'] = f'Bearer {AUTH_TOKEN}'
     headers['X-Internal-API-Key'] = AUTH_TOKEN
-    logging.info(headers)
 
     try:
         response = requests.post(api_url, headers=headers, data=json_data, timeout=10)
@@ -457,3 +541,65 @@ def lambda_handler(event, context):
         'statusCode': 200,
         'body': msg
     }
+
+
+def lambda_handler(event, context):
+    """
+    Main entry point for Lambda function.
+
+    The goal of this entry point is to handle workflow submissions from GA4GH
+    WES API and handle workflow status updates from aws.omics via EventBridge.
+
+    The event structure will be for GA4GH workflow submissions:
+    {
+        'action': 'submit_workflow',
+    }
+    or EventBridge events
+    {
+        'source': 'aws.omics',
+        'detail-type': 'Run Status Change',
+        'detail': {
+            'runId': 'string',
+            'status': 'string',
+            ...
+        },
+        ...
+    }
+    """
+    logger = setup_logging(event)
+
+    try:
+        # Method 1: Check for explicit workflow submission action
+        if (event.get('source') == 'ga4ghwes' and
+            event.get('action') == 'submit_workflow'):
+            logger.info("Routing to workflow submission handler")
+            return submit_omics_run(event, context)
+
+        # Method 2: Check for EventBridge characteristics
+        elif (event.get('source') == 'aws.omics' and
+              event.get('detail-type') == 'Run Status Change'):
+            logger.info("Routing to status update handler")
+            return update_status(event, context)
+
+        # Method 3: Fallback for existing EventBridge events (backward compatibility)
+        # elif 'detail' in event and 'runId' in event.get('detail', {}):
+        #     logger.info("Routing to status update handler (legacy format)")
+        #     return update_status(event, context)
+
+        # Unknown event type
+        else:
+            error_msg = f"Unknown event type. Event structure: {json.dumps(event, default=str)[:500]}..."
+            logger.error(error_msg)
+            return {
+                'statusCode': 400,
+                'error': 'UnknownEventType',
+                'message': 'Unable to determine event type - neither EventBridge nor workflow submission'
+            }
+
+    except Exception as e:
+        logger.error(f"Error in main handler: {str(e)}")
+        return {
+            'statusCode': 500,
+            'error': 'InternalError',
+            'message': f'Lambda handler error: {str(e)}'
+        }
