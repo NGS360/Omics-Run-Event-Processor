@@ -1,7 +1,7 @@
 # ngs360-omics-run-event-processor
 
 AWSTemplateFormatVersion: '2010-09-09'
-Description: NGS360 Omics Run Event Processor CloudFormation Template
+Description: NGS360 Omics Run/Batch Event Processor CloudFormation Template
 
 Parameters:
   DeadLetterEmail:
@@ -51,7 +51,7 @@ Resources:
   DeadLetterQueue:
     Type: AWS::SNS::Topic
     Properties:
-      DisplayName: ngs360-omics-run-event-processor-dead-letter-queue
+      DisplayName: ngs360-lambda-event-processor-dead-letter-queue
       Subscription:
         - Endpoint: !Ref DeadLetterEmail
           Protocol: email
@@ -92,7 +92,7 @@ Resources:
                   - !Sub arn:aws:s3:::${DataLakeBucket}/*
         - PolicyName: SecretsManagerAccess
           PolicyDocument:
-            Version: 2012-10-17
+            Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action:
@@ -112,8 +112,17 @@ Resources:
                   - omics:StartRun
                   - omics:TagResource
                 Resource: "*"
+        - PolicyName: BatchAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - batch:DescribeJobs
+                  - batch:ListJobs
+                Resource: "*"
 
-  OmicsRunEventProcessorFunction:
+  LambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
       Code: 
@@ -122,7 +131,7 @@ Resources:
 
       DeadLetterConfig:
         TargetArn: !Ref DeadLetterQueue
-      Description: NGS360 Omics Run Event Processor Lambda Function
+      Description: NGS360 Omics Run/Batch Event Processor Lambda Function
       Environment:
         Variables:
           API_SERVER: !Ref ApiServer
@@ -165,8 +174,22 @@ Resources:
           - Run Status Change
       State: ENABLED
       Targets:
-        - Arn: !GetAtt OmicsRunEventProcessorFunction.Arn
-          Id: "OmicsRunEventProcessorFunctionTarget"
+        - Arn: !GetAtt LambdaFunction.Arn
+          Id: LambdaFunctionTarget
+
+  BatchEventRule:
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: EventBridge Rule to trigger Lambda Function on AWS Batch Job State Change events
+      EventPattern:
+        source:
+          - aws.batch
+        detail-type:
+          - Batch Job State Change
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt LambdaFunction.Arn
+          Id: LambdaFunctionTarget
 
   LambdaInvokePermission:
     Type: AWS::Lambda::Permission
@@ -174,7 +197,6 @@ Resources:
       FunctionName: !Ref OmicsRunEventProcessorFunction
       Action: lambda:InvokeFunction
       Principal: events.amazonaws.com
-      SourceArn: !GetAtt OmicsRunEventRule.Arn
 
 Outputs:
   LambdaFunctionName:
