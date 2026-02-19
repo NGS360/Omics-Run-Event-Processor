@@ -1,7 +1,8 @@
 NAME=ngs360-omics-run-event-processor
-STACK_NAME=ngs360-omics-run-event-processor-LambdaFunction-L3z8fJzoS4Dx
-BUCKET=bmsrd-ngs-omics
 BUCKET_PREFIX=omics-run-events
+
+# Include local configuration
+-include Makefile.local
 
 test:
 	python3 -m pytest -vv --cov ./
