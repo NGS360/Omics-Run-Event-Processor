@@ -194,11 +194,11 @@ Resources:
   LambdaInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
-      FunctionName: !Ref OmicsRunEventProcessorFunction
+      FunctionName: !Ref LambdaFunction
       Action: lambda:InvokeFunction
       Principal: events.amazonaws.com
 
 Outputs:
   LambdaFunctionName:
     Description: Name of the Omics Run Event Processor Lambda Function
-    Value: !Ref OmicsRunEventProcessorFunction
+    Value: !Ref LambdaFunction
