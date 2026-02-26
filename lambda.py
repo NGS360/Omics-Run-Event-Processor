@@ -7,8 +7,10 @@ import os
 import boto3
 import requests
 
-from batch_event_handler import batch_event_handler
 from logger import get_logger
+from batch_event_handler import batch_event_handler
+from ga4ghwes_event_handler import ga4gh_event_handler
+from ngs360_event_handler import ngs360_event_handler
 
 secrets_client = boto3.client('secretsmanager')
 s3 = boto3.client('s3')
@@ -357,67 +359,6 @@ def validate_submission_request(event):
     return True, None
 
 
-def submit_omics_run(event, context):
-    """
-    Handle workflow submission requests from GA4GH WES API.
-    Submits new workflows to AWS Omics using the same logic as the working omics.py.
-    """
-    logger.info(f"Received workflow submission request: {json.dumps(event, default=str)[:500]}...")
-    try:
-        # Validate input parameters
-        is_valid, error_msg = validate_submission_request(event)
-        if not is_valid:
-            return {'statusCode': 400, 'error': 'ValidationError', 'message': error_msg}
-
-        # Extract parameters
-        wes_run_id = event['wes_run_id']
-        workflow_id = event['workflow_id']
-        workflow_engine_params = event.get('workflow_engine_parameters', {})
-
-        # Set output URI - use provided or default
-        output_uri = workflow_engine_params.get('outputUri')
-
-        # Build basic Omics parameters
-        kwargs = {
-            'workflowId': workflow_id,
-            'roleArn': os.environ['OMICS_ROLE_ARN'],
-            'parameters': event.get('parameters', {}),
-            'outputUri': output_uri,
-            'name': workflow_engine_params.get('name', f"wes-run-{wes_run_id}"),
-            'tags': {'WESRunId': wes_run_id, **event.get('tags', {})},
-            'retentionMode': 'REMOVE',
-            'storageType': 'DYNAMIC'
-        }
-
-        # Override name if provided in tags
-        if "Name" in kwargs['tags']:
-            kwargs['name'] = kwargs['tags']['Name']
-
-        # Add optional parameters if provided
-        if event.get('workflow_version'):
-            kwargs['workflowVersionName'] = event['workflow_version']
-        if 'cacheId' in workflow_engine_params:
-            kwargs['cacheId'] = workflow_engine_params['cacheId']
-
-        # Submit to Omics
-        response = omics_client.start_run(**kwargs)
-        omics_run_id = response['id']
-
-        logger.info(f"Started Omics run {omics_run_id} for WES run {wes_run_id}")
-
-        return {
-            'statusCode': 200,
-            'omics_run_id': omics_run_id,
-            'output_uri': output_uri,
-            'message': 'Workflow submitted successfully',
-            'wes_run_id': wes_run_id
-        }
-
-    except Exception as e:
-        logger.error(f"Error submitting workflow: {str(e)}")
-        return {'statusCode': 500, 'error': 'OmicsSubmissionError', 'message': str(e)}
-
-
 def update_status(event, context):
     """
     Handle EventBridge state change events (existing functionality).
@@ -553,10 +494,8 @@ def lambda_handler(event, context):
 
     try:
         # Method 1: Check for explicit workflow submission action
-        if (event.get('source') == 'ga4ghwes' and
-            event.get('action') == 'submit_workflow'):
-            logger.info("Routing to workflow submission handler")
-            return submit_omics_run(event, context)
+        if event.get('source') == 'ga4ghwes':
+            return ga4gh_event_handler(event)
 
         # Method 2: Check for EventBridge characteristics
         elif (event.get('source') == 'aws.omics' and
@@ -567,11 +506,15 @@ def lambda_handler(event, context):
         elif event.get('source') == 'aws.batch':
             logger.info("Received AWS Batch event, routing to Batch handler")
             return batch_event_handler(event)
+
+        elif event.get('source') == 'ngs360':
+            logger.info("Received NGS360 event, routing to NGS360 handler")
+            return ngs360_event_handler(event)
+
         # Method 3: Fallback for existing EventBridge events (backward compatibility)
         # elif 'detail' in event and 'runId' in event.get('detail', {}):
         #     logger.info("Routing to status update handler (legacy format)")
         #     return update_status(event, context)
-
         # Unknown event type
         else:
             error_msg = f"Unknown event type. Event structure: {json.dumps(event, default=str)[:500]}..."
