@@ -4,7 +4,7 @@ import json
 from logger import get_logger
 
 from batch_event_handler import batch_event_handler
-import ga4ghwes_event_handler
+from ga4ghwes_event_handler import ga4ghwes_event_handler
 from omics_event_handler import omics_event_handler
 
 logger = get_logger()
