@@ -114,6 +114,9 @@ Resources:
                   - omics:ListRunTasks
                   - omics:StartRun
                   - omics:TagResource
+                  - omics:CreateWorkflow
+                  - omics:GetWorkflow
+                  - omics:ListWorkflows
                 Resource: "*"
               - Effect: Allow
                 Action:
