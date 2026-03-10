@@ -4,8 +4,9 @@ import json
 from logger import get_logger
 
 from batch_event_handler import batch_event_handler
-import ga4ghwes_event_handler
+from ga4ghwes_event_handler import ga4ghwes_event_handler
 from omics_event_handler import omics_event_handler
+from ngs360_event_handler import ngs360_event_handler
 
 logger = get_logger()
 
@@ -51,6 +52,10 @@ def lambda_handler(event, context):
         elif event.get('source') == 'aws.batch':
             logger.info("Received AWS Batch event")
             return batch_event_handler(event)
+
+        elif event.get('source') == 'ngs360':
+            logger.info("Received NGS360 event")
+            return ngs360_event_handler(event)
 
         # Unknown event type
         else:
