@@ -34,14 +34,21 @@ def submit_omics_run(event):
         # Set output URI - use provided or default
         output_uri = workflow_engine_params.get('outputUri')
 
+        # Set task name
+        if "name" in workflow_engine_params:
+            task_name = workflow_engine_params['name']
+        elif "tags" in event and "TaskName" in event['tags']:
+            task_name = event['tags']['TaskName']
+        else:
+            task_name = f"wes-run-{wes_run_id}"
+
         # Build basic Omics parameters
         kwargs = {
             'workflowId': workflow_id,
             'roleArn': os.environ['OMICS_ROLE_ARN'],
             'parameters': event.get('parameters', {}),
             'outputUri': output_uri,
-            'name': workflow_engine_params.get('name',
-                                               f"wes-run-{wes_run_id}"),
+            'name': task_name,
             'tags': {'WESRunId': wes_run_id, **event.get('tags', {})},
             'retentionMode': 'REMOVE',
             'storageType': 'DYNAMIC'
@@ -52,8 +59,8 @@ def submit_omics_run(event):
             kwargs['name'] = kwargs['tags']['Name']
 
         # Add optional parameters if provided
-        if event.get('workflow_version'):
-            kwargs['workflowVersionName'] = event['workflow_version']
+        if 'workflowVersionName' in workflow_engine_params:
+            kwargs['workflowVersionName'] = workflow_engine_params['workflowVersionName']
         if 'cacheId' in workflow_engine_params:
             kwargs['cacheId'] = workflow_engine_params['cacheId']
 
