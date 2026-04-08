@@ -10,12 +10,11 @@ logger = get_logger()
 def post_job(job_id, job_status, log_stream_name):
     """ Post Batch job status to NGS360 REST API """
     message_body = {
-        'aws_job_id': job_id,
         'status': job_status,
         'log_stream_name': log_stream_name
     }
 
-    url = "%s/api/v1/jobs" % (os.environ['NGS360_API_SERVER'])
+    url = "%s/api/v1/jobs/%s" % (os.environ['NGS360_API_SERVER'], job_id)
 
     try:
         logger.info("PUT %s to %s", message_body, url)
