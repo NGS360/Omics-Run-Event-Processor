@@ -7,33 +7,37 @@ import time
 
 import boto3
 from botocore.exceptions import ClientError
+from botocore.config import Config
 
 from logger import get_logger
 
 logger = get_logger()
-omics_client = boto3.client('omics')
+client_config = Config(retries={'max_attempts': 10, 'mode': 'adaptive'})
+omics_client = boto3.client('omics', config=client_config)
 s3 = boto3.client('s3')
 secrets_client = boto3.client('secretsmanager')
 
 
-def _execute_omics_with_retry(func, operation_name, max_retries=3):
+def _execute_omics_with_retry(func, operation_name, max_retries=3, sleep_time=60):
     """Execute HealthOmics API call with retry logic for rate limits."""
     for attempt in range(max_retries):
         try:
             return func()
         except ClientError as e:
             error_code = e.response.get('Error', {}).get('Code', '')
-            if error_code in ['Throttling', 'ThrottlingException', 'RequestLimitExceeded']:
+            if any(code in error_code for code in ['Throttling', 'ThrottlingException', 'RequestLimitExceeded', 'TooManyRequestsException']):
                 logger.warning(f"Rate limit hit for {operation_name} - attempt {attempt + 1}/{max_retries}")
                 if attempt < max_retries - 1:
-                    logger.info("Sleeping 10 seconds before retry...")
-                    time.sleep(10)
+                    logger.info(f"Sleeping {sleep_time} seconds before retry...")
+                    time.sleep(sleep_time)
                 else:
                     logger.error(f"Max retries ({max_retries}) exceeded for {operation_name}")
                     raise e
             else:
                 raise e
-
+        except Exception as e:
+            logger.error(f"Non-Client error for {operation_name}: {e}")
+            raise e
 
 def ensure_json_serializable(obj):
     """
