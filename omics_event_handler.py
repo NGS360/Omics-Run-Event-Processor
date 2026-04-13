@@ -437,6 +437,14 @@ def update_status(event):
     run_id = flat_event.get('runId')
     region = flat_event.get('region', 'us-east-1')
 
+    # Skip certain status changes
+	if status in ['STARTING', 'STOPPING', 'DELETING', 'DELETED']:
+        logger.info(f"Ignoring {status} status update for run {run_id}")
+        return {
+            'statusCode': 200,
+            'body': f"Ignored {status} status for run {run_id}"
+        }
+
     # Q: When will run_id be missing?
     # A: In the current EventBridge events, runId is always present.
     if run_id:
