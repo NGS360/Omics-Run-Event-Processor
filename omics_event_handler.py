@@ -178,7 +178,7 @@ def get_auth_token():
     return None
 
 
-def get_log_urls(run_id, region, logger):
+def get_log_urls(run_id, run_info, region, logger):
     """
     Get CloudWatch log URLs for an AWS HealthOmics run.
 
@@ -191,18 +191,14 @@ def get_log_urls(run_id, region, logger):
         Dictionary containing log URLs or empty dict if not available
     """
     try:
-        # Get run details from AWS HealthOmics
-        response = omics_client.get_run(id=run_id)
-        logger.debug(f"Got run details for {run_id}: {response}")
-
         # Check if logLocation exists in the response
-        if 'logLocation' not in response:
+        if 'logLocation' not in run_info:
             logger.warning(
-                f"No logLocation found in response for run {run_id}"
+                f"No logLocation found in run_info for run {run_id}"
             )
             return {}
 
-        log_location = response.get('logLocation', {})
+        log_location = run_info.get('logLocation', {})
 
         # Check if runLogStream exists
         if 'runLogStream' not in log_location:
@@ -356,7 +352,7 @@ def get_log_urls(run_id, region, logger):
         return {}
 
 
-def get_run_tags(run_id, logger):
+def get_run_tags(run_id, run_info, logger):
     """
     Get tags for an AWS HealthOmics run.
 
@@ -368,8 +364,7 @@ def get_run_tags(run_id, logger):
         Dictionary containing tags or empty dict if not available
     """
     try:
-        response = omics_client.get_run(id=run_id)
-        tags = response.get('tags', {})
+        tags = run_info.get('tags', {})
 
         if tags:
             logger.info(f"Retrieved {len(tags)} tags for run {run_id}")
@@ -420,8 +415,9 @@ def update_status(event):
     # Q: When will run_id be missing?
     # A: In the current EventBridge events, runId is always present.
     if run_id:
+        run_info = omics_client.get_run(id=run_id)
         try:
-            tags = get_run_tags(run_id, logger)
+            tags = get_run_tags(run_id, run_info, logger)
             if tags and 'WESRunId' in tags:
                 data['wes_run_id'] = tags['WESRunId']
                 logger.info(
@@ -437,7 +433,7 @@ def update_status(event):
 
         # Add log URLs for all finishing events
         try:
-            log_urls = get_log_urls(run_id, region, logger)
+            log_urls = get_log_urls(run_id, run_info, region, logger)
             if log_urls:
                 data['log_urls'] = log_urls
                 logger.info(f"Added log URLs for run {run_id}")
