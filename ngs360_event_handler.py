@@ -184,9 +184,14 @@ def migrate_image_with_crane(source_image, target_image):
         logger.info(f"Successfully migrated: {source_image} → {target_image}")
 
     except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to migrate image {source_image}: {e.stderr}")
-        # Don't fail the entire process for one image
-        logger.warning(f"Continuing workflow registration despite image migration failure")
+        error_message = f"Failed to migrate Docker image {source_image} to {target_image}. Command: {' '.join(copy_cmd)}. Error: {e.stderr or e.stdout or 'No error output'}"
+        logger.error(error_message)
+        # Fail the entire process since workflow won't work without the image
+        raise RuntimeError(error_message) from e
+    except Exception as e:
+        error_message = f"Unexpected error migrating Docker image {source_image} to {target_image}: {str(e)}"
+        logger.error(error_message)
+        raise RuntimeError(error_message) from e
 
 
 def create_workflow_zip(updated_cwl_content, workflow_id):
