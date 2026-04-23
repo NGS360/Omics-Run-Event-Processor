@@ -235,26 +235,57 @@ def create_workflow_zip(updated_cwl_content, workflow_id):
         raise
 
 
-def register_workflow(event):
+def _process_workflow(event):
     """
-    Handle workflow registration requests from NGS360.
-    Process packed CWL workflow with Docker repository updates.
+    Common workflow processing logic shared by register_workflow and create_workflow_version.
+
+    Args:
+        event: Lambda event containing workflow request
+
+    Returns:
+        tuple: (s3_zip_path, ecr_account, ecr_region, docker_prefix)
+
+    Raises:
+        Exception: Any error during processing
+    """
+    # Get AWS configuration from environment variables
+    ecr_account = os.environ['ECR_ACCOUNT']
+    ecr_region = os.environ['ECR_REGION']
+    docker_prefix = os.environ.get('DOCKER_PREFIX')
+
+    logger.info(f"Using AWS configuration: ECR_ACCOUNT={ecr_account}, "
+                f"ECR_REGION={ecr_region}, DOCKER_PREFIX={docker_prefix}")
+
+    # Download packed CWL from S3
+    cwl_content = download_cwl_from_s3(event['cwl_s3_path'])
+
+    # Migrate Docker images and update CWL URLs
+    updated_cwl_content = migrate_docker_images_with_crane(
+        cwl_content,
+        ecr_account,
+        ecr_region,
+        docker_prefix
+    )
+
+    # Create ZIP bundle with updated CWL
+    s3_zip_path = create_workflow_zip(updated_cwl_content, event['id'])
+    return s3_zip_path
+
+
+def create_workflow(event):
+    """
+    Handle workflow creation requests from NGS360.
+    Create a new workflow in HealthOmics.
 
     Expected event structure:
     {
-        "action": "register_workflow",
+        "action": "create_workflow",
         "name": "workflow-name",
         "cwl_s3_path": "s3://bucket/path/to/packed.cwl",
         "id": "ngs360-workflow-id"
     }
-
-    Args:
-        event: Lambda event containing registration request
-
-    Returns:
-        dict: Response with workflow_id or error
     """
-    logger.info(f"Received workflow registration request: "
+    logger.info(f"Received workflow creation request: "
                 f"{json.dumps(event, default=str)[:500]}...")
 
     # Validate required fields
@@ -268,30 +299,11 @@ def register_workflow(event):
                 'message': f"{field} is required but not provided."
             }
 
-    # Get AWS configuration from environment variables (guaranteed to exist)
-    ecr_account = os.environ['ECR_ACCOUNT']
-    ecr_region = os.environ['ECR_REGION']
-    docker_prefix = os.environ.get('DOCKER_PREFIX', '')  # Optional prefix
-
-    logger.info(f"Using AWS configuration: ECR_ACCOUNT={ecr_account}, "
-                f"ECR_REGION={ecr_region}, DOCKER_PREFIX={docker_prefix}")
-
     try:
-        # Download packed CWL from S3
-        cwl_content = download_cwl_from_s3(event['cwl_s3_path'])
+        # Process workflow using common logic
+        s3_zip_path = _process_workflow(event)
 
-        # Migrate Docker images and update CWL URLs
-        updated_cwl_content = migrate_docker_images_with_crane(
-            cwl_content,
-            ecr_account,
-            ecr_region,
-            docker_prefix
-        )
-
-        # Create ZIP bundle with updated CWL (returns local path and S3 path)
-        s3_zip_path = create_workflow_zip(updated_cwl_content, event['id'])
-
-        # Register workflow with AWS HealthOmics using local file
+        # Create new workflow with HealthOmics
         kwargs = {
             'name': event['name'],
             'engine': 'CWL',
@@ -324,6 +336,72 @@ def register_workflow(event):
         }
 
 
+def create_workflow_version(event):
+    """
+    Handle workflow version creation requests from NGS360.
+    Create a new version of existing workflow in HealthOmics.
+
+    Expected event structure:
+    {
+        "action": "create_workflow_version",
+        "omics_workflow_id": "1234567",
+        "version_name": "version-name",
+        "cwl_s3_path": "s3://bucket/path/to/packed.cwl",
+        "id": "ngs360-version-id"
+    }
+    """
+    logger.info(f"Received workflow version creation request: "
+                f"{json.dumps(event, default=str)[:500]}...")
+
+    # Validate required fields
+    required_fields = ['omics_workflow_id', 'cwl_s3_path', 'version_name', 'id']
+    for field in required_fields:
+        if field not in event:
+            logger.error(f"{field} is required but not provided.")
+            return {
+                'statusCode': 400,
+                'error': 'ValidationError',
+                'message': f"{field} is required but not provided."
+            }
+
+    try:
+        # Process workflow using common logic
+        s3_zip_path = _process_workflow(event)
+
+        # Create workflow version with HealthOmics
+        kwargs = {
+            'id': event['omics_workflow_id'],  # Existing workflow ID
+            'versionName': event['version_name'], # Version name
+            'definitionUri': s3_zip_path,     # S3 ZIP path
+            'main': 'workflow.packed.cwl',    # Main CWL file in ZIP
+            'tags': {
+                "NGS360_version_id": event['id'],
+            }
+        }
+
+        logger.info(f"Creating Omics workflow version with parameters: {kwargs}")
+        response = omics_client.create_workflow_version(**kwargs)
+        version_id = response['id']
+
+        logger.info(f"Successfully created workflow version {version_id} for workflow {event['omics_workflow_id']}")
+
+        return {
+            'statusCode': 200,
+            'version_id': version_id,
+            'omics_workflow_id': event['omics_workflow_id'],
+            'zip_s3_path': s3_zip_path,
+            'message': f'Workflow version created successfully with Docker images processed'
+        }
+
+    except Exception as e:
+        logger.error(f"Error creating workflow version: {str(e)}")
+        return {
+            'statusCode': 500,
+            'error': 'WorkflowVersionCreationError',
+            'message': str(e)
+        }
+
+
 def ngs360_event_handler(event):
     """
     Main handler for NGS360 events.
@@ -336,13 +414,16 @@ def ngs360_event_handler(event):
     """
     action = event.get('action')
 
-    if action == 'register_workflow':
-        logger.info("Routing to workflow registration handler")
-        return register_workflow(event)
+    if action == 'create_workflow':
+        logger.info("Routing to workflow creation handler")
+        return create_workflow(event)
+    elif action == 'create_workflow_version':
+        logger.info("Routing to workflow version creation handler")
+        return create_workflow_version(event)
     else:
         logger.error(f"Unknown NGS360 action: {action}")
         return {
             'statusCode': 400,
             'error': 'UnknownAction',
-            'message': f"Unknown NGS360 action: {action}. Supported actions: register_workflow"
+            'message': f"Unknown NGS360 action: {action}. Supported actions: create_workflow, create_workflow_version"
         }
