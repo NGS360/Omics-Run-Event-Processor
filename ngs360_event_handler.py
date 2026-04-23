@@ -189,39 +189,39 @@ def migrate_image_with_crane(source_image, target_image):
 
 def create_workflow_zip(updated_cwl_content, workflow_id):
     """
-    Create a ZIP file containing the updated CWL and upload to S3.
+    Create a ZIP file containing the updated CWL locally and upload to S3 for records.
 
     Args:
         updated_cwl_content: Updated CWL content string
         workflow_id: Workflow ID for naming
-        bucket_name: S3 bucket name (if None, uses environment variable)
 
     Returns:
-        S3 path to the created ZIP file
+        tuple: (local_zip_path, s3_zip_path) for HealthOmics call and record keeping
     """
     try:
         bucket_name = os.environ['DataLakeBucket']
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        # Use a temporary directory for ZIP creation
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Write updated CWL to temporary file
-            cwl_file_path = os.path.join(temp_dir, 'workflow.packed.cwl')
-            with open(cwl_file_path, 'w') as f:
-                f.write(updated_cwl_content)
+        # Create ZIP file in Lambda's /tmp directory (persists for the execution)
+        zip_file_path = f"/tmp/workflow_{workflow_id}_{timestamp}.zip"
+        cwl_file_path = f"/tmp/workflow_{workflow_id}.packed.cwl"
 
-            # Create ZIP file
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            zip_file_path = os.path.join(temp_dir, f"workflow_{timestamp}.zip")
-            with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                zipf.write(cwl_file_path, 'workflow.packed.cwl')
+        # Write updated CWL to temporary file
+        with open(cwl_file_path, 'w') as f:
+            f.write(updated_cwl_content)
 
-            # Upload ZIP to standardized S3 path
-            zip_s3_key = f"Workflow_Definition/{workflow_id}/workflow_{timestamp}.zip"
-            s3_client.upload_file(zip_file_path, bucket_name, zip_s3_key)
+        # Create ZIP file
+        with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            zipf.write(cwl_file_path, 'workflow.packed.cwl')
 
-            zip_s3_path = f"s3://{bucket_name}/{zip_s3_key}"
-            logger.info(f"Successfully created workflow ZIP at: {zip_s3_path}")
-            return zip_s3_path
+        # Upload ZIP to S3 for record keeping
+        zip_s3_key = f"Workflow_Definition/{workflow_id}/workflow_{timestamp}.zip"
+        s3_client.upload_file(zip_file_path, bucket_name, zip_s3_key)
+        zip_s3_path = f"s3://{bucket_name}/{zip_s3_key}"
+
+        logger.info(f"Successfully created workflow ZIP locally: {zip_file_path}")
+        logger.info(f"Successfully uploaded workflow ZIP to S3: {zip_s3_path}")
+        return zip_s3_path
 
     except Exception as e:
         logger.error(f"Error creating workflow ZIP: {str(e)}")
@@ -281,19 +281,17 @@ def register_workflow(event):
             docker_prefix
         )
 
-        # Create ZIP bundle with updated CWL
-        zip_s3_path = create_workflow_zip(updated_cwl_content, event['id'])
+        # Create ZIP bundle with updated CWL (returns local path and S3 path)
+        s3_zip_path = create_workflow_zip(updated_cwl_content, event['id'])
 
-        # Register workflow with AWS HealthOmics
+        # Register workflow with AWS HealthOmics using local file
         kwargs = {
             'name': event['name'],
             'engine': 'CWL',
-            'definitionZip': zip_s3_path,
+            'definitionUri': s3_zip_path,
             'main': 'workflow.packed.cwl',
             'tags': {
-                "NGS360_workflow_id": event['id'],
-                "ECR_account": ecr_account,
-                "docker_prefix": docker_prefix
+                "NGS360_workflow_id": event['id']
             }
         }
 
@@ -301,12 +299,12 @@ def register_workflow(event):
         response = omics_client.create_workflow(**kwargs)
         workflow_id = response['id']
 
-        logger.info(f"Successfully registered workflow {workflow_id} "
-                    f"from processed CWL at {zip_s3_path}")
+        logger.info(f"Successfully registered workflow {workflow_id} using ZIP: {s3_zip_path}")
 
         return {
             'statusCode': 200,
             'workflow_id': workflow_id,
+            'zip_s3_path': s3_zip_path,
             'message': f'Workflow registered successfully with Docker images processed'
         }
 
