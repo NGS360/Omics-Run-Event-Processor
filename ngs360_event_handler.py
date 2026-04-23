@@ -39,8 +39,10 @@ def download_cwl_from_s3(s3_path):
         return content
 
     except Exception as e:
-        logger.error(f"Error downloading file from S3: {str(e)}")
-        raise
+        error_message = f"Error downloading file from S3 {s3_path}: {str(e)}"
+        logger.error(error_message)
+        # Re-raise with more descriptive message that includes context
+        raise RuntimeError(error_message) from e
 
 
 def ensure_ecr_repository(repo_name, ecr_account):
