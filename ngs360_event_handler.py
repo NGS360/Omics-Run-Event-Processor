@@ -271,7 +271,7 @@ def register_workflow(event):
 
     try:
         # Download packed CWL from S3
-        cwl_content = download_s3_file(event['cwl_s3_path'])
+        cwl_content = download_cwl_from_s3(event['cwl_s3_path'])
 
         # Migrate Docker images and update CWL URLs
         updated_cwl_content = migrate_docker_images_with_crane(

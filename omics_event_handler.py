@@ -438,7 +438,7 @@ def update_status(event):
     region = flat_event.get('region', 'us-east-1')
 
     # Skip certain status changes
-	if status in ['STARTING', 'STOPPING', 'DELETING', 'DELETED']:
+    if status in ['STARTING', 'STOPPING', 'DELETING', 'DELETED']:
         logger.info(f"Ignoring {status} status update for run {run_id}")
         return {
             'statusCode': 200,
