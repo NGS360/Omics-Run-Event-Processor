@@ -122,7 +122,8 @@ class TestNGS360WorkflowVersionCreation:
         mock_process_workflow.return_value = 's3://test-bucket/workflow-zips/test-v2.zip'
         mock_omics_client.create_workflow_version.return_value = {
             'id': 'wf-version-456',
-            'arn': 'arn:aws:omics:us-east-1:123456789012:workflow/wf-abc123456/version/wf-version-456'
+            'arn': 'arn:aws:omics:us-east-1:123456789012:workflow/wf-abc123456/version/wf-version-456',
+            'versionName': 'v2.0'
         }
 
         # Valid event
@@ -138,7 +139,7 @@ class TestNGS360WorkflowVersionCreation:
 
         # Verify response
         assert response['statusCode'] == 200
-        assert response['version_id'] == 'wf-version-456'
+        assert response['version_name'] == 'v2.0'
         assert response['omics_workflow_id'] == 'wf-abc123456'
         assert 'Workflow version created successfully with Docker images processed' in response['message']
 
@@ -146,10 +147,10 @@ class TestNGS360WorkflowVersionCreation:
         mock_omics_client.create_workflow_version.assert_called_once()
         call_kwargs = mock_omics_client.create_workflow_version.call_args[1]
 
-        assert call_kwargs['id'] == 'wf-abc123456'
+        assert call_kwargs['workflowId'] == 'wf-abc123456'
         assert call_kwargs['versionName'] == 'v2.0'
         assert call_kwargs['definitionUri'] == 's3://test-bucket/workflow-zips/test-v2.zip'
-        assert call_kwargs['tags']['NGS360_version_id'] == 'ngs360-version-123'
+        assert call_kwargs['tags']['NGS360_workflow_id'] == 'ngs360-version-123'
 
     def test_create_workflow_version_missing_omics_workflow_id(self):
         """Test workflow version creation with missing omics_workflow_id."""
@@ -185,42 +186,46 @@ class TestNGS360WorkflowVersionCreation:
 
     @pytest.mark.parametrize("event,expected_field", [
         # Missing all required fields
-        ({'action': 'register_workflow'}, 'cwl_s3_path'),
+        ({'action': 'create_workflow'}, 'cwl_s3_path'),
         # Missing name and id
-        ({'action': 'register_workflow', 'cwl_s3_path': 's3://bucket/workflow.cwl'}, 'name'),
+        ({'action': 'create_workflow', 'cwl_s3_path': 's3://bucket/workflow.cwl'}, 'name'),
         # Missing cwl_s3_path and id
-        ({'action': 'register_workflow', 'name': 'test-workflow'}, 'cwl_s3_path'),
+        ({'action': 'create_workflow', 'name': 'test-workflow'}, 'cwl_s3_path'),
     ])
     def test_register_workflow_missing_multiple_fields(self, event, expected_field):
         """Test workflow registration with multiple missing fields scenarios."""
-        response = ngs360_event_handler.register_workflow(event)
+        response = ngs360_event_handler.create_workflow(event)
         assert response['statusCode'] == 400
         assert response['error'] == 'ValidationError'
         assert 'is required but not provided' in response['message']
 
+    @patch('ngs360_event_handler._process_workflow')
     @patch('ngs360_event_handler.omics_client')
-    def test_register_workflow_omics_api_error(self, mock_omics_client):
+    def test_register_workflow_omics_api_error(self, mock_omics_client, mock_process_workflow):
         """Test workflow registration with AWS Omics API error (expected error scenario)."""
-        # Set up mock to raise exception - this is testing error handling
+        # Set up mocks
+        mock_process_workflow.return_value = 's3://test-bucket/workflow-zips/invalid.zip'
         mock_omics_client.create_workflow.side_effect = Exception("InvalidWorkflowDefinitionException: Invalid CWL definition")
 
         event = {
-            'action': 'register_workflow',
+            'action': 'create_workflow',
             'cwl_s3_path': 's3://test-bucket/workflows/invalid.cwl',
             'name': 'invalid-workflow',
             'id': 'ngs360-workflow-456'
         }
 
-        response = ngs360_event_handler.register_workflow(event)
+        response = ngs360_event_handler.create_workflow(event)
 
         assert response['statusCode'] == 500
-        assert response['error'] == 'OmicsCreateWorkflowError'
+        assert response['error'] == 'WorkflowRegistrationError'
         assert 'InvalidWorkflowDefinitionException' in response['message']
 
+    @patch('ngs360_event_handler._process_workflow')
     @patch('ngs360_event_handler.omics_client')
-    def test_register_workflow_with_minimal_event(self, mock_omics_client):
+    def test_register_workflow_with_minimal_event(self, mock_omics_client, mock_process_workflow):
         """Test workflow registration with minimal required fields only."""
-        # Set up mock
+        # Set up mocks
+        mock_process_workflow.return_value = 's3://test-bucket/workflow-zips/minimal.zip'
         mock_omics_client.create_workflow.return_value = {
             'id': 'wf-minimal123',
             'arn': 'arn:aws:omics:us-east-1:123456789012:workflow/wf-minimal123'
@@ -233,7 +238,7 @@ class TestNGS360WorkflowVersionCreation:
             'id': 'ngs360-minimal-1'
         }
 
-        response = ngs360_event_handler.register_workflow(event)
+        response = ngs360_event_handler.create_workflow(event)
 
         # Verify successful response
         assert response['statusCode'] == 200
@@ -245,8 +250,8 @@ class TestNGS360WorkflowVersionCreation:
         
         expected_params = {
             'name': 'minimal-workflow',
-            'engine': 'CWL', 
-            'definitionUri': 's3://test-bucket/minimal.cwl',
+            'engine': 'CWL',
+            'definitionUri': 's3://test-bucket/workflow-zips/minimal.zip',
             'tags': {'NGS360_workflow_id': 'ngs360-minimal-1'}
         }
         
@@ -285,7 +290,7 @@ class TestNGS360EventHandler:
         """Test routing of create_workflow_version action."""
         mock_create_workflow_version.return_value = {
             'statusCode': 200,
-            'version_id': 'wf-version-456',
+            'version_name': 'v2.0',
             'omics_workflow_id': 'wf-abc123456'
         }
 
@@ -303,7 +308,7 @@ class TestNGS360EventHandler:
         # Verify create_workflow_version was called
         mock_create_workflow_version.assert_called_once_with(event)
         assert response['statusCode'] == 200
-        assert response['version_id'] == 'wf-version-456'
+        assert response['version_name'] == 'v2.0'
         assert response['omics_workflow_id'] == 'wf-abc123456'
 
     def test_ngs360_event_handler_unknown_action(self):
@@ -403,7 +408,8 @@ class TestNGS360Integration:
         mock_process_workflow.return_value = 's3://test-bucket/workflow-zips/integration-v2.zip'
         mock_omics_client.create_workflow_version.return_value = {
             'id': 'wf-version-integration456',
-            'arn': 'arn:aws:omics:us-east-1:123456789012:workflow/wf-abc123/version/wf-version-integration456'
+            'arn': 'arn:aws:omics:us-east-1:123456789012:workflow/wf-abc123/version/wf-version-integration456',
+            'versionName': 'v3.0-production'
         }
 
         # Complete event as would be received by lambda handler
@@ -421,7 +427,7 @@ class TestNGS360Integration:
 
         # Verify successful response
         assert response['statusCode'] == 200
-        assert response['version_id'] == 'wf-version-integration456'
+        assert response['version_name'] == 'v3.0-production'
         assert response['omics_workflow_id'] == 'wf-abc123'
         assert 'Workflow version created successfully with Docker images processed' in response['message']
 
@@ -429,7 +435,7 @@ class TestNGS360Integration:
         mock_omics_client.create_workflow_version.assert_called_once()
         call_kwargs = mock_omics_client.create_workflow_version.call_args[1]
         
-        assert call_kwargs['id'] == 'wf-abc123'
+        assert call_kwargs['workflowId'] == 'wf-abc123'
         assert call_kwargs['versionName'] == 'v3.0-production'
         assert call_kwargs['definitionUri'] == 's3://test-bucket/workflow-zips/integration-v2.zip'
-        assert call_kwargs['tags']['NGS360_version_id'] == 'ngs360-alignment-pipeline-v3-100'
+        assert call_kwargs['tags']['NGS360_workflow_id'] == 'ngs360-alignment-pipeline-v3-100'

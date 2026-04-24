@@ -347,7 +347,7 @@ def create_workflow_version(event):
         "omics_workflow_id": "1234567",
         "version_name": "version-name",
         "cwl_s3_path": "s3://bucket/path/to/packed.cwl",
-        "id": "ngs360-version-id"
+        "id": "ngs360-workflow-id"
     }
     """
     logger.info(f"Received workflow version creation request: "
@@ -375,7 +375,7 @@ def create_workflow_version(event):
             'definitionUri': s3_zip_path,     # S3 ZIP path
             'main': 'workflow.packed.cwl',    # Main CWL file in ZIP
             'tags': {
-                "NGS360_version_id": event['id'],
+                "NGS360_workflow_id": event['id'],
             }
         }
 
