@@ -370,7 +370,7 @@ def create_workflow_version(event):
 
         # Create workflow version with HealthOmics
         kwargs = {
-            'id': event['omics_workflow_id'],  # Existing workflow ID
+            'workflowId': event['omics_workflow_id'],  # Existing workflow ID
             'versionName': event['version_name'], # Version name
             'definitionUri': s3_zip_path,     # S3 ZIP path
             'main': 'workflow.packed.cwl',    # Main CWL file in ZIP
@@ -381,13 +381,13 @@ def create_workflow_version(event):
 
         logger.info(f"Creating Omics workflow version with parameters: {kwargs}")
         response = omics_client.create_workflow_version(**kwargs)
-        version_id = response['id']
+        version_name = response['versionName']
 
-        logger.info(f"Successfully created workflow version {version_id} for workflow {event['omics_workflow_id']}")
+        logger.info(f"Successfully created workflow version {version_name} for workflow {event['omics_workflow_id']}")
 
         return {
             'statusCode': 200,
-            'version_id': version_id,
+            'version_name': version_name,
             'omics_workflow_id': event['omics_workflow_id'],
             'zip_s3_path': s3_zip_path,
             'message': f'Workflow version created successfully with Docker images processed'
