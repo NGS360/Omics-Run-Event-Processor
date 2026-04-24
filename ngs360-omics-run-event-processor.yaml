@@ -42,11 +42,9 @@ Parameters:
       Description: ARN of the IAM role for AWS Omics workflow execution
   EcrAccount:
       Type: String
-      Default: !Ref AWS::AccountId
       Description: ECR Account ID for Docker image migration
   EcrRegion:
       Type: String
-      Default: !Ref AWS::Region
       Description: ECR Region for Docker image migration
   DockerPrefix:
       Type: String
