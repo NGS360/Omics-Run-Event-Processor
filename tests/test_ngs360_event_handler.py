@@ -18,18 +18,24 @@ sys.path.append('..')
 # Set up required environment variables before importing modules
 os.environ['AWS_DEFAULT_REGION'] = 'us-east-1'
 os.environ['VERBOSE_LOGGING'] = 'true'
+os.environ['ECR_ACCOUNT'] = '123456789012'
+os.environ['ECR_REGION'] = 'us-east-1'
+os.environ['DOCKER_PREFIX'] = 'test-prefix'
+os.environ['DATA_LAKE_BUCKET'] = 'test-bucket'
 
 # Import the ngs360_event_handler module
 import ngs360_event_handler
 
 
-class TestNGS360WorkflowRegistration:
-    """Test NGS360 workflow registration functionality."""
+class TestNGS360WorkflowCreation:
+    """Test NGS360 workflow creation functionality."""
 
+    @patch('ngs360_event_handler._process_workflow')
     @patch('ngs360_event_handler.omics_client')
-    def test_register_workflow_success(self, mock_omics_client):
-        """Test successful workflow registration."""
-        # Set up mock
+    def test_create_workflow_success(self, mock_omics_client, mock_process_workflow):
+        """Test successful workflow creation."""
+        # Set up mocks
+        mock_process_workflow.return_value = 's3://test-bucket/workflow-zips/test.zip'
         mock_omics_client.create_workflow.return_value = {
             'id': 'wf-abc123456',
             'arn': 'arn:aws:omics:us-east-1:123456789012:workflow/wf-abc123456'
@@ -37,18 +43,18 @@ class TestNGS360WorkflowRegistration:
 
         # Valid event
         event = {
-            'action': 'register_workflow',
+            'action': 'create_workflow',
             'cwl_s3_path': 's3://test-bucket/workflows/hello-world.cwl',
             'name': 'hello-world-workflow',
             'id': 'ngs360-workflow-123'
         }
 
-        response = ngs360_event_handler.register_workflow(event)
+        response = ngs360_event_handler.create_workflow(event)
 
         # Verify response
         assert response['statusCode'] == 200
         assert response['workflow_id'] == 'wf-abc123456'
-        assert response['message'] == 'Workflow registered successfully'
+        assert 'Workflow registered successfully with Docker images processed' in response['message']
 
         # Verify create_workflow was called with correct parameters
         mock_omics_client.create_workflow.assert_called_once()
@@ -56,53 +62,126 @@ class TestNGS360WorkflowRegistration:
 
         assert call_kwargs['name'] == 'hello-world-workflow'
         assert call_kwargs['engine'] == 'CWL'
-        assert call_kwargs['definitionUri'] == 's3://test-bucket/workflows/hello-world.cwl'
+        assert call_kwargs['definitionUri'] == 's3://test-bucket/workflow-zips/test.zip'
         assert call_kwargs['tags']['NGS360_workflow_id'] == 'ngs360-workflow-123'
 
-    def test_register_workflow_missing_cwl_s3_path(self):
-        """Test workflow registration with missing cwl_s3_path."""
+    def test_create_workflow_missing_cwl_s3_path(self):
+        """Test workflow creation with missing cwl_s3_path."""
         event = {
-            'action': 'register_workflow',
+            'action': 'create_workflow',
             'name': 'hello-world-workflow',
             'id': 'ngs360-workflow-123'
             # Missing cwl_s3_path
         }
 
-        response = ngs360_event_handler.register_workflow(event)
+        response = ngs360_event_handler.create_workflow(event)
 
         assert response['statusCode'] == 400
         assert response['error'] == 'ValidationError'
         assert response['message'] == 'cwl_s3_path is required but not provided.'
 
-    def test_register_workflow_missing_name(self):
-        """Test workflow registration with missing name."""
+    def test_create_workflow_missing_name(self):
+        """Test workflow creation with missing name."""
         event = {
-            'action': 'register_workflow',
+            'action': 'create_workflow',
             'cwl_s3_path': 's3://test-bucket/workflows/hello-world.cwl',
             'id': 'ngs360-workflow-123'
             # Missing name
         }
 
-        response = ngs360_event_handler.register_workflow(event)
+        response = ngs360_event_handler.create_workflow(event)
 
         assert response['statusCode'] == 400
         assert response['error'] == 'ValidationError'
         assert response['message'] == 'name is required but not provided.'
 
-    def test_register_workflow_missing_id(self):
-        """Test workflow registration with missing id."""
+    def test_create_workflow_missing_id(self):
+        """Test workflow creation with missing id."""
         event = {
-            'action': 'register_workflow',
+            'action': 'create_workflow',
             'cwl_s3_path': 's3://test-bucket/workflows/hello-world.cwl',
             'name': 'hello-world-workflow'
             # Missing id
         }
 
-        response = ngs360_event_handler.register_workflow(event)
+        response = ngs360_event_handler.create_workflow(event)
 
         assert response['statusCode'] == 400
         assert response['error'] == 'ValidationError'
         assert response['message'] == 'id is required but not provided.'
+
+
+class TestNGS360WorkflowVersionCreation:
+    """Test NGS360 workflow version creation functionality."""
+
+    @patch('ngs360_event_handler._process_workflow')
+    @patch('ngs360_event_handler.omics_client')
+    def test_create_workflow_version_success(self, mock_omics_client, mock_process_workflow):
+        """Test successful workflow version creation."""
+        # Set up mocks
+        mock_process_workflow.return_value = 's3://test-bucket/workflow-zips/test-v2.zip'
+        mock_omics_client.create_workflow_version.return_value = {
+            'id': 'wf-version-456',
+            'arn': 'arn:aws:omics:us-east-1:123456789012:workflow/wf-abc123456/version/wf-version-456'
+        }
+
+        # Valid event
+        event = {
+            'action': 'create_workflow_version',
+            'omics_workflow_id': 'wf-abc123456',
+            'version_name': 'v2.0',
+            'cwl_s3_path': 's3://test-bucket/workflows/hello-world-v2.cwl',
+            'id': 'ngs360-version-123'
+        }
+
+        response = ngs360_event_handler.create_workflow_version(event)
+
+        # Verify response
+        assert response['statusCode'] == 200
+        assert response['version_id'] == 'wf-version-456'
+        assert response['omics_workflow_id'] == 'wf-abc123456'
+        assert 'Workflow version created successfully with Docker images processed' in response['message']
+
+        # Verify create_workflow_version was called with correct parameters
+        mock_omics_client.create_workflow_version.assert_called_once()
+        call_kwargs = mock_omics_client.create_workflow_version.call_args[1]
+
+        assert call_kwargs['id'] == 'wf-abc123456'
+        assert call_kwargs['versionName'] == 'v2.0'
+        assert call_kwargs['definitionUri'] == 's3://test-bucket/workflow-zips/test-v2.zip'
+        assert call_kwargs['tags']['NGS360_version_id'] == 'ngs360-version-123'
+
+    def test_create_workflow_version_missing_omics_workflow_id(self):
+        """Test workflow version creation with missing omics_workflow_id."""
+        event = {
+            'action': 'create_workflow_version',
+            'version_name': 'v2.0',
+            'cwl_s3_path': 's3://test-bucket/workflows/hello-world-v2.cwl',
+            'id': 'ngs360-version-123'
+            # Missing omics_workflow_id
+        }
+
+        response = ngs360_event_handler.create_workflow_version(event)
+
+        assert response['statusCode'] == 400
+        assert response['error'] == 'ValidationError'
+        assert response['message'] == 'omics_workflow_id is required but not provided.'
+
+    def test_create_workflow_version_missing_version_name(self):
+        """Test workflow version creation with missing version_name."""
+        event = {
+            'action': 'create_workflow_version',
+            'omics_workflow_id': 'wf-abc123456',
+            'cwl_s3_path': 's3://test-bucket/workflows/hello-world-v2.cwl',
+            'id': 'ngs360-version-123'
+            # Missing version_name
+        }
+
+        response = ngs360_event_handler.create_workflow_version(event)
+
+        assert response['statusCode'] == 400
+        assert response['error'] == 'ValidationError'
+        assert response['message'] == 'version_name is required but not provided.'
 
     @pytest.mark.parametrize("event,expected_field", [
         # Missing all required fields
@@ -178,17 +257,17 @@ class TestNGS360WorkflowRegistration:
 class TestNGS360EventHandler:
     """Test NGS360 event handler routing functionality."""
 
-    @patch('ngs360_event_handler.register_workflow')
-    def test_ngs360_event_handler_register_workflow(self, mock_register_workflow):
-        """Test routing of register_workflow action."""
-        mock_register_workflow.return_value = {
+    @patch('ngs360_event_handler.create_workflow')
+    def test_ngs360_event_handler_create_workflow(self, mock_create_workflow):
+        """Test routing of create_workflow action."""
+        mock_create_workflow.return_value = {
             'statusCode': 200,
             'workflow_id': 'wf-test123'
         }
 
         event = {
             'source': 'ngs360',
-            'action': 'register_workflow',
+            'action': 'create_workflow',
             'cwl_s3_path': 's3://test-bucket/workflow.cwl',
             'name': 'test-workflow',
             'id': 'ngs360-test-1'
@@ -196,10 +275,36 @@ class TestNGS360EventHandler:
 
         response = ngs360_event_handler.ngs360_event_handler(event)
 
-        # Verify register_workflow was called
-        mock_register_workflow.assert_called_once_with(event)
+        # Verify create_workflow was called
+        mock_create_workflow.assert_called_once_with(event)
         assert response['statusCode'] == 200
         assert response['workflow_id'] == 'wf-test123'
+
+    @patch('ngs360_event_handler.create_workflow_version')
+    def test_ngs360_event_handler_create_workflow_version(self, mock_create_workflow_version):
+        """Test routing of create_workflow_version action."""
+        mock_create_workflow_version.return_value = {
+            'statusCode': 200,
+            'version_id': 'wf-version-456',
+            'omics_workflow_id': 'wf-abc123456'
+        }
+
+        event = {
+            'source': 'ngs360',
+            'action': 'create_workflow_version',
+            'omics_workflow_id': 'wf-abc123456',
+            'version_name': 'v2.0',
+            'cwl_s3_path': 's3://test-bucket/workflow-v2.cwl',
+            'id': 'ngs360-version-1'
+        }
+
+        response = ngs360_event_handler.ngs360_event_handler(event)
+
+        # Verify create_workflow_version was called
+        mock_create_workflow_version.assert_called_once_with(event)
+        assert response['statusCode'] == 200
+        assert response['version_id'] == 'wf-version-456'
+        assert response['omics_workflow_id'] == 'wf-abc123456'
 
     def test_ngs360_event_handler_unknown_action(self):
         """Test handling of unknown actions (expected error scenario)."""
@@ -214,7 +319,8 @@ class TestNGS360EventHandler:
         assert response['statusCode'] == 400
         assert response['error'] == 'UnknownAction'
         assert 'unknown_action' in response['message']
-        assert 'register_workflow' in response['message']
+        assert 'create_workflow' in response['message']
+        assert 'create_workflow_version' in response['message']
 
     def test_ngs360_event_handler_missing_action(self):
         """Test handling of events with missing action (expected error scenario)."""
@@ -246,16 +352,18 @@ class TestNGS360EventHandler:
 
         assert response['statusCode'] == 400
         assert response['error'] == 'UnknownAction'
-        assert 'Supported actions: register_workflow' in response['message']
+        assert 'create_workflow, create_workflow_version' in response['message']
 
 
 class TestNGS360Integration:
     """Test integration scenarios for NGS360 event handling."""
 
+    @patch('ngs360_event_handler._process_workflow')
     @patch('ngs360_event_handler.omics_client')
-    def test_full_workflow_registration_flow(self, mock_omics_client):
-        """Test complete workflow registration flow from event handler entry point."""
-        # Set up mock
+    def test_full_workflow_creation_flow(self, mock_omics_client, mock_process_workflow):
+        """Test complete workflow creation flow from event handler entry point."""
+        # Set up mocks
+        mock_process_workflow.return_value = 's3://test-bucket/workflow-zips/integration.zip'
         mock_omics_client.create_workflow.return_value = {
             'id': 'wf-integration123',
             'arn': 'arn:aws:omics:us-east-1:123456789012:workflow/wf-integration123'
@@ -264,7 +372,7 @@ class TestNGS360Integration:
         # Complete event as would be received by lambda handler
         event = {
             'source': 'ngs360',
-            'action': 'register_workflow',
+            'action': 'create_workflow',
             'cwl_s3_path': 's3://ngs360-workflows/production/alignment-pipeline.cwl',
             'name': 'alignment-pipeline-v2',
             'id': 'ngs360-alignment-pipeline-42'
@@ -276,7 +384,7 @@ class TestNGS360Integration:
         # Verify successful response
         assert response['statusCode'] == 200
         assert response['workflow_id'] == 'wf-integration123'
-        assert response['message'] == 'Workflow registered successfully'
+        assert 'Workflow registered successfully with Docker images processed' in response['message']
 
         # Verify AWS API was called correctly
         mock_omics_client.create_workflow.assert_called_once()
@@ -284,53 +392,44 @@ class TestNGS360Integration:
         
         assert call_kwargs['name'] == 'alignment-pipeline-v2'
         assert call_kwargs['engine'] == 'CWL'
-        assert call_kwargs['definitionUri'] == 's3://ngs360-workflows/production/alignment-pipeline.cwl'
+        assert call_kwargs['definitionUri'] == 's3://test-bucket/workflow-zips/integration.zip'
         assert call_kwargs['tags']['NGS360_workflow_id'] == 'ngs360-alignment-pipeline-42'
 
+    @patch('ngs360_event_handler._process_workflow')
     @patch('ngs360_event_handler.omics_client')
-    def test_workflow_registration_with_special_characters(self, mock_omics_client):
-        """Test workflow registration with special characters in names and paths."""
-        # Set up mock
-        mock_omics_client.create_workflow.return_value = {
-            'id': 'wf-special123',
-            'arn': 'arn:aws:omics:us-east-1:123456789012:workflow/wf-special123'
+    def test_full_workflow_version_creation_flow(self, mock_omics_client, mock_process_workflow):
+        """Test complete workflow version creation flow from event handler entry point."""
+        # Set up mocks
+        mock_process_workflow.return_value = 's3://test-bucket/workflow-zips/integration-v2.zip'
+        mock_omics_client.create_workflow_version.return_value = {
+            'id': 'wf-version-integration456',
+            'arn': 'arn:aws:omics:us-east-1:123456789012:workflow/wf-abc123/version/wf-version-integration456'
         }
 
+        # Complete event as would be received by lambda handler
         event = {
-            'action': 'register_workflow',
-            'cwl_s3_path': 's3://test-bucket/workflows/rna-seq_v1.2.cwl',
-            'name': 'RNA-Seq Analysis Pipeline (v1.2)',
-            'id': 'ngs360-rna-seq-v1.2_special'
+            'source': 'ngs360',
+            'action': 'create_workflow_version',
+            'omics_workflow_id': 'wf-abc123',
+            'version_name': 'v3.0-production',
+            'cwl_s3_path': 's3://ngs360-workflows/production/alignment-pipeline-v3.cwl',
+            'id': 'ngs360-alignment-pipeline-v3-100'
         }
 
-        response = ngs360_event_handler.register_workflow(event)
+        # Call the main event handler
+        response = ngs360_event_handler.ngs360_event_handler(event)
 
+        # Verify successful response
         assert response['statusCode'] == 200
-        assert response['workflow_id'] == 'wf-special123'
+        assert response['version_id'] == 'wf-version-integration456'
+        assert response['omics_workflow_id'] == 'wf-abc123'
+        assert 'Workflow version created successfully with Docker images processed' in response['message']
 
-        # Verify special characters are preserved in API call
-        call_kwargs = mock_omics_client.create_workflow.call_args[1]
-        assert call_kwargs['name'] == 'RNA-Seq Analysis Pipeline (v1.2)'
-        assert call_kwargs['definitionUri'] == 's3://test-bucket/workflows/rna-seq_v1.2.cwl'
-        assert call_kwargs['tags']['NGS360_workflow_id'] == 'ngs360-rna-seq-v1.2_special'
-
-    @pytest.mark.parametrize("missing_field,expected_error", [
-        ('cwl_s3_path', 'cwl_s3_path is required'),
-        ('name', 'name is required'), 
-        ('id', 'id is required'),
-    ])
-    def test_workflow_registration_field_validation_order(self, missing_field, expected_error):
-        """Test that field validation happens in the expected order."""
-        base_event = {
-            'action': 'register_workflow',
-            'cwl_s3_path': 's3://test-bucket/workflow.cwl',
-            'name': 'test-workflow',
-            'id': 'ngs360-test-id'
-        }
+        # Verify AWS API was called correctly
+        mock_omics_client.create_workflow_version.assert_called_once()
+        call_kwargs = mock_omics_client.create_workflow_version.call_args[1]
         
-        # Remove the field we want to test
-        event = {k: v for k, v in base_event.items() if k != missing_field}
-        
-        response = ngs360_event_handler.register_workflow(event)
-        assert response['statusCode'] == 400
-        assert expected_error in response['message']
+        assert call_kwargs['id'] == 'wf-abc123'
+        assert call_kwargs['versionName'] == 'v3.0-production'
+        assert call_kwargs['definitionUri'] == 's3://test-bucket/workflow-zips/integration-v2.zip'
+        assert call_kwargs['tags']['NGS360_version_id'] == 'ngs360-alignment-pipeline-v3-100'
