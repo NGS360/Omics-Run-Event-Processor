@@ -40,6 +40,17 @@ Parameters:
   OmicsRoleArn:
       Type: String
       Description: ARN of the IAM role for AWS Omics workflow execution
+  EcrAccount:
+      Type: String
+      Default: !Ref AWS::AccountId
+      Description: ECR Account ID for Docker image migration
+  EcrRegion:
+      Type: String
+      Default: !Ref AWS::Region
+      Description: ECR Region for Docker image migration
+  DockerPrefix:
+      Type: String
+      Description: Docker repository prefix in ECR
 
 Resources:
   ApiServerAuthTokenSecret:
@@ -115,6 +126,7 @@ Resources:
                   - omics:StartRun
                   - omics:TagResource
                   - omics:CreateWorkflow
+                  - omics:CreateWorkflowVersion
                   - omics:GetWorkflow
                   - omics:ListWorkflows
                 Resource: "*"
@@ -122,6 +134,25 @@ Resources:
                 Action:
                   - iam:PassRole
                 Resource: !Ref OmicsRoleArn
+        - PolicyName: EcrAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:CreateRepository
+                  - ecr:SetRepositoryPolicy
+                  - ecr:DescribeRepositories
+                  - ecr:GetRepositoryPolicy
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:PutImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                Resource: "*"
         - PolicyName: BatchAccess
           PolicyDocument:
             Version: "2012-10-17"
@@ -151,6 +182,9 @@ Resources:
           VERBOSE_LOGGING: !Ref VerboseLogging
           ENV_SECRETS: !Ref ApiServerAuthTokenSecret
           OMICS_ROLE_ARN: !Ref OmicsRoleArn
+          ECR_ACCOUNT: !Ref EcrAccount
+          ECR_REGION: !Ref EcrRegion
+          DOCKER_PREFIX: !Ref DockerPrefix
 
       Handler: lambda.lambda_handler
       LoggingConfig: 

@@ -206,7 +206,7 @@ def create_workflow_zip(updated_cwl_content, workflow_id):
         tuple: (local_zip_path, s3_zip_path) for HealthOmics call and record keeping
     """
     try:
-        bucket_name = os.environ['DataLakeBucket']
+        bucket_name = os.environ['DATA_LAKE_BUCKET']
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         # Create ZIP file in Lambda's /tmp directory (persists for the execution)
