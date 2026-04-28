@@ -109,6 +109,8 @@ def migrate_docker_images_with_crane(
         Updated CWL content string
     """
     logger.info(f"Migrating Docker images to AWS ECR using crane")
+    # Authenticate to both source (SBG) and destination (ECR) registries
+    authenticate_crane_to_sbg()
     authenticate_crane_to_ecr(ecr_account, ecr_region)
     ecr_base_uri = f'{ecr_account}.dkr.ecr.{ecr_region}.amazonaws.com/{docker_prefix}/'
 
@@ -173,6 +175,35 @@ def authenticate_crane_to_ecr(ecr_account, ecr_region):
         logger.error(f"Error during ECR authentication: {e}")
         raise
 
+
+def authenticate_crane_to_sbg():
+    """Authenticate crane to Seven Bridges Genomics registry using SBG credentials."""
+    try:
+        # SBG registry endpoint
+        sbg_registry = "images.sbgenomics.com"
+
+        # TODO: Get username and token from environment variables
+        sbg_username = "YOUR_SBG_USERNAME"  # Replace with your SBG username
+        sbg_token = "YOUR_SBG_API_TOKEN"    # Replace with your SBG API token
+
+        if sbg_username == "YOUR_SBG_USERNAME" or sbg_token == "YOUR_SBG_API_TOKEN":
+            raise ValueError("Please replace YOUR_SBG_USERNAME and YOUR_SBG_API_TOKEN with actual credentials")
+
+        env = os.environ.copy()
+        env['HOME'] = '/tmp'
+
+        # For SBG, the username is your SBG username and password is your API token
+        # This follows the same pattern as `docker login images.sbgenomics.com -u <username> -p <api_token>`
+        login_cmd = ["./crane", "auth", "login", sbg_registry, "-u", sbg_username, "--password-stdin"]
+        result = subprocess.run(login_cmd, input=sbg_token, text=True, capture_output=True, check=True, env=env)
+        logger.info(f"Successfully authenticated crane to SBG registry: {sbg_registry}")
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to authenticate crane to SBG: {e.stderr or e.stdout}")
+        raise
+    except Exception as e:
+        logger.error(f"Error during SBG authentication: {e}")
+        raise
 
 def migrate_image_with_crane(source_image, target_image):
     """Migrate single image from source registry to ECR using crane copy."""
