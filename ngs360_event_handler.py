@@ -158,10 +158,12 @@ def authenticate_crane_to_ecr(ecr_account, ecr_region):
         token = auth_data['authorizationToken']
         username, password = base64.b64decode(token).decode().split(':', 1)
 
+        env = os.environ.copy()
+        env['HOME'] = '/tmp'
+
         # Login crane to ECR
         login_cmd = ["./crane", "auth", "login", ecr_registry, "-u", username, "--password-stdin"]
-        subprocess.run(login_cmd, input=password, text=True, check=True)
-
+        subprocess.run(login_cmd, input=password, text=True, check=True, env=env)
         logger.info(f"Successfully authenticated crane to ECR: {ecr_registry}")
 
     except subprocess.CalledProcessError as e:
