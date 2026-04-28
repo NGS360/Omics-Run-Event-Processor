@@ -159,7 +159,7 @@ def authenticate_crane_to_ecr(ecr_account, ecr_region):
         username, password = base64.b64decode(token).decode().split(':', 1)
 
         # Login crane to ECR
-        login_cmd = ["crane", "auth", "login", ecr_registry, "-u", username, "--password-stdin"]
+        login_cmd = ["./crane", "auth", "login", ecr_registry, "-u", username, "--password-stdin"]
         subprocess.run(login_cmd, input=password, text=True, check=True)
 
         logger.info(f"Successfully authenticated crane to ECR: {ecr_registry}")
@@ -176,7 +176,7 @@ def migrate_image_with_crane(source_image, target_image):
     """Migrate single image from source registry to ECR using crane copy."""
     try:
         # Use crane copy for direct registry-to-registry migration
-        copy_cmd = ["crane", "copy", source_image, target_image]
+        copy_cmd = ["./crane", "copy", source_image, target_image]
 
         logger.info(f"Migrating image: {source_image} → {target_image}")
         result = subprocess.run(copy_cmd, capture_output=True, text=True, check=True)
