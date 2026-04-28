@@ -160,12 +160,9 @@ def authenticate_crane_to_ecr(ecr_account, ecr_region):
         token = auth_data['authorizationToken']
         username, password = base64.b64decode(token).decode().split(':', 1)
 
-        env = os.environ.copy()
-        env['HOME'] = '/tmp'
-
-        # Login crane to ECR
+        # Login crane to ECR (HOME environment variable set via CloudFormation)
         login_cmd = ["./crane", "auth", "login", ecr_registry, "-u", username, "--password-stdin"]
-        subprocess.run(login_cmd, input=password, text=True, check=True, env=env)
+        subprocess.run(login_cmd, input=password, text=True, check=True)
         logger.info(f"Successfully authenticated crane to ECR: {ecr_registry}")
 
     except subprocess.CalledProcessError as e:
@@ -182,20 +179,17 @@ def authenticate_crane_to_sbg():
         # SBG registry endpoint
         sbg_registry = "images.sbgenomics.com"
 
-        # TODO: Get username and token from environment variables
-        sbg_username = "YOUR_SBG_USERNAME"  # Replace with your SBG username
-        sbg_token = "YOUR_SBG_API_TOKEN"    # Replace with your SBG API token
+        # Get username and token from environment variables
+        sbg_username = os.environ.get('SBG_USERNAME')
+        sbg_token = os.environ.get('SBG_AUTH_TOKEN')
 
-        if sbg_username == "YOUR_SBG_USERNAME" or sbg_token == "YOUR_SBG_API_TOKEN":
-            raise ValueError("Please replace YOUR_SBG_USERNAME and YOUR_SBG_API_TOKEN with actual credentials")
-
-        env = os.environ.copy()
-        env['HOME'] = '/tmp'
+        if not sbg_username or not sbg_token:
+            raise ValueError("SBG_USERNAME and SBG_AUTH_TOKEN environment variables must be set for Docker registry authentication")
 
         # For SBG, the username is your SBG username and password is your API token
-        # This follows the same pattern as `docker login images.sbgenomics.com -u <username> -p <api_token>`
+        # HOME environment variable set via CloudFormation
         login_cmd = ["./crane", "auth", "login", sbg_registry, "-u", sbg_username, "--password-stdin"]
-        result = subprocess.run(login_cmd, input=sbg_token, text=True, capture_output=True, check=True, env=env)
+        result = subprocess.run(login_cmd, input=sbg_token, text=True, capture_output=True, check=True)
         logger.info(f"Successfully authenticated crane to SBG registry: {sbg_registry}")
 
     except subprocess.CalledProcessError as e:
@@ -208,13 +202,12 @@ def authenticate_crane_to_sbg():
 def migrate_image_with_crane(source_image, target_image):
     """Migrate single image from source registry to ECR using crane copy."""
     try:
-        env = os.environ.copy()
-        env['HOME'] = '/tmp'
         # Use crane copy for direct registry-to-registry migration
+        # HOME environment variable set via CloudFormation
         copy_cmd = ["./crane", "copy", source_image, target_image]
 
         logger.info(f"Migrating image: {source_image} → {target_image}")
-        result = subprocess.run(copy_cmd, capture_output=True, text=True, check=True, env=env)
+        result = subprocess.run(copy_cmd, capture_output=True, text=True, check=True)
 
         logger.info(f"Successfully migrated: {source_image} → {target_image}")
 

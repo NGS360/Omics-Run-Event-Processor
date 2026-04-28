@@ -49,6 +49,16 @@ Parameters:
   DockerPrefix:
       Type: String
       Description: Docker repository prefix in ECR
+  SbgUsername:
+      Type: String
+      Description: Seven Bridges Genomics username for Docker registry authentication
+  SbgAuthToken:
+      Type: String
+      NoEcho: true
+      Description: Seven Bridges Genomics API token for Docker registry authentication
+  HomeDirectory:
+      Type: String
+      Description: HOME directory path for Lambda environment
 
 Resources:
   ApiServerAuthTokenSecret:
@@ -183,6 +193,9 @@ Resources:
           ECR_ACCOUNT: !Ref EcrAccount
           ECR_REGION: !Ref EcrRegion
           DOCKER_PREFIX: !Ref DockerPrefix
+          SBG_USERNAME: !Ref SbgUsername
+          SBG_AUTH_TOKEN: !Ref SbgAuthToken
+          HOME: !Ref HomeDirectory
 
       Handler: lambda.lambda_handler
       LoggingConfig: 
