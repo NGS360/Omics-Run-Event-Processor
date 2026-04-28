@@ -208,11 +208,13 @@ def authenticate_crane_to_sbg():
 def migrate_image_with_crane(source_image, target_image):
     """Migrate single image from source registry to ECR using crane copy."""
     try:
+        env = os.environ.copy()
+        env['HOME'] = '/tmp'
         # Use crane copy for direct registry-to-registry migration
         copy_cmd = ["./crane", "copy", source_image, target_image]
 
         logger.info(f"Migrating image: {source_image} → {target_image}")
-        result = subprocess.run(copy_cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(copy_cmd, capture_output=True, text=True, check=True, env=env)
 
         logger.info(f"Successfully migrated: {source_image} → {target_image}")
 
