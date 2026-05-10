@@ -51,7 +51,6 @@ def submit_omics_run(event):
             'name': task_name,
             'tags': {'WESRunId': wes_run_id, **event.get('tags', {})},
             'retentionMode': 'REMOVE',
-            'storageType': 'DYNAMIC'
         }
 
         # Override name if provided in tags
@@ -63,6 +62,8 @@ def submit_omics_run(event):
             kwargs['workflowVersionName'] = workflow_engine_params['workflowVersionName']
         if 'cacheId' in workflow_engine_params:
             kwargs['cacheId'] = workflow_engine_params['cacheId']
+        if 'storageType' in workflow_engine_params:
+            kwargs['storageType'] = workflow_engine_params['storageType']
 
         # Submit to Omics
         response = omics_client.start_run(**kwargs)
