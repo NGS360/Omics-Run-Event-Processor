@@ -64,6 +64,8 @@ def submit_omics_run(event):
             kwargs['cacheId'] = workflow_engine_params['cacheId']
         if 'storageType' in workflow_engine_params:
             kwargs['storageType'] = workflow_engine_params['storageType']
+        if 'storageCapacity' in workflow_engine_params:
+            kwargs['storageCapacity'] = workflow_engine_params['storageCapacity']
 
         # Submit to Omics
         response = omics_client.start_run(**kwargs)
