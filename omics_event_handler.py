@@ -3,16 +3,41 @@ import os
 from datetime import datetime
 import uuid
 import requests
+import time
 
 import boto3
+from botocore.exceptions import ClientError
+from botocore.config import Config
 
 from logger import get_logger
 
 logger = get_logger()
-omics_client = boto3.client('omics')
+client_config = Config(retries={'max_attempts': 10, 'mode': 'adaptive'})
+omics_client = boto3.client('omics', config=client_config)
 s3 = boto3.client('s3')
 secrets_client = boto3.client('secretsmanager')
 
+
+def _execute_omics_with_retry(func, operation_name, max_retries=3, sleep_time=60):
+    """Execute HealthOmics API call with retry logic for rate limits."""
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', '')
+            if any(code in error_code for code in ['Throttling', 'ThrottlingException', 'RequestLimitExceeded', 'TooManyRequestsException']):
+                logger.warning(f"Rate limit hit for {operation_name} - attempt {attempt + 1}/{max_retries}")
+                if attempt < max_retries - 1:
+                    logger.info(f"Sleeping {sleep_time} seconds before retry...")
+                    time.sleep(sleep_time)
+                else:
+                    logger.error(f"Max retries ({max_retries}) exceeded for {operation_name}")
+                    raise e
+            else:
+                raise e
+        except Exception as e:
+            logger.error(f"Non-Client error for {operation_name}: {e}")
+            raise e
 
 def ensure_json_serializable(obj):
     """
@@ -178,7 +203,7 @@ def get_auth_token():
     return None
 
 
-def get_log_urls(run_id, region, logger):
+def get_log_urls(run_id, run_info, region, logger):
     """
     Get CloudWatch log URLs for an AWS HealthOmics run.
 
@@ -191,18 +216,14 @@ def get_log_urls(run_id, region, logger):
         Dictionary containing log URLs or empty dict if not available
     """
     try:
-        # Get run details from AWS HealthOmics
-        response = omics_client.get_run(id=run_id)
-        logger.debug(f"Got run details for {run_id}: {response}")
-
         # Check if logLocation exists in the response
-        if 'logLocation' not in response:
+        if 'logLocation' not in run_info:
             logger.warning(
-                f"No logLocation found in response for run {run_id}"
+                f"No logLocation found in run_info for run {run_id}"
             )
             return {}
 
-        log_location = response.get('logLocation', {})
+        log_location = run_info.get('logLocation', {})
 
         # Check if runLogStream exists
         if 'runLogStream' not in log_location:
@@ -263,10 +284,10 @@ def get_log_urls(run_id, region, logger):
 
         # Try to get task IDs for this run
         try:
-            # List tasks for this run
-            tasks_response = omics_client.list_run_tasks(
-                id=run_id,
-                maxResults=10  # Adjust as needed
+            # List tasks for this run - use retry logic
+            tasks_response = _execute_omics_with_retry(
+                lambda: omics_client.list_run_tasks(id=run_id, maxResults=10),
+                f"list_run_tasks({run_id})"
             )
 
             # Process task information
@@ -356,7 +377,7 @@ def get_log_urls(run_id, region, logger):
         return {}
 
 
-def get_run_tags(run_id, logger):
+def get_run_tags(run_id, run_info, logger):
     """
     Get tags for an AWS HealthOmics run.
 
@@ -368,8 +389,7 @@ def get_run_tags(run_id, logger):
         Dictionary containing tags or empty dict if not available
     """
     try:
-        response = omics_client.get_run(id=run_id)
-        tags = response.get('tags', {})
+        tags = run_info.get('tags', {})
 
         if tags:
             logger.info(f"Retrieved {len(tags)} tags for run {run_id}")
@@ -417,11 +437,23 @@ def update_status(event):
     run_id = flat_event.get('runId')
     region = flat_event.get('region', 'us-east-1')
 
+    # Skip certain status changes
+    if status in ['STARTING', 'STOPPING', 'DELETING', 'DELETED']:
+        logger.info(f"Ignoring {status} status update for run {run_id}")
+        return {
+            'statusCode': 200,
+            'body': f"Ignored {status} status for run {run_id}"
+        }
+
     # Q: When will run_id be missing?
     # A: In the current EventBridge events, runId is always present.
     if run_id:
+        run_info = _execute_omics_with_retry(
+            lambda: omics_client.get_run(id=run_id),
+            f"get_run({run_id})"
+        )
         try:
-            tags = get_run_tags(run_id, logger)
+            tags = get_run_tags(run_id, run_info, logger)
             if tags and 'WESRunId' in tags:
                 data['wes_run_id'] = tags['WESRunId']
                 logger.info(
@@ -437,7 +469,7 @@ def update_status(event):
 
         # Add log URLs for all finishing events
         try:
-            log_urls = get_log_urls(run_id, region, logger)
+            log_urls = get_log_urls(run_id, run_info, region, logger)
             if log_urls:
                 data['log_urls'] = log_urls
                 logger.info(f"Added log URLs for run {run_id}")

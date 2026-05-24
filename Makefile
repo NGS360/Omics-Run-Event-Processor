@@ -19,6 +19,10 @@ create-lambda-package:
 	cd lambda-package && \
 	cp ../*.py . && \
 	pip3 install -r ../requirements.txt -t . && \
+	curl -L "https://github.com/google/go-containerregistry/releases/latest/download/go-containerregistry_Linux_x86_64.tar.gz" -o crane.tar.gz && \
+	tar -xzf crane.tar.gz crane && \
+	chmod +x crane && \
+	rm crane.tar.gz && \
 	zip -r ../$(zipfile) .
 	aws s3 cp $(zipfile) s3://${BUCKET}/${BUCKET_PREFIX}/$(zipfile) --sse
 
