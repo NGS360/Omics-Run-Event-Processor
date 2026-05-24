@@ -28,8 +28,25 @@ def submit_omics_run(event):
 
         # Extract parameters
         wes_run_id = event['wes_run_id']
-        workflow_id = event['workflow_id']
+        workflow_url = event['workflow_id']
         workflow_engine_params = event.get('workflow_engine_parameters', {})
+
+        # Process workflow_url
+        if workflow_url.isdigit():
+            workflow_id = workflow_url
+        else:
+            workflow_id = workflow_url.split('/')[1]
+            if not workflow_id.isdigit():
+                msg = (f"Unexpected Workflow ID format {workflow_url}. Example: "
+                       f"arn:aws:omics:<region>:<account_id>:workflow/<workflow_id>/version/<version_name>")
+                return {
+                    'statusCode': 400,
+                    'error': 'ValidationError',
+                    'message': msg
+                }
+            if len(workflow_url.split('/')) == 4:
+                workflow_version = workflow_url.split('/')[3]
+                workflow_engine_params["workflowVersionName"] = workflow_version
 
         # Set output URI - use provided or default
         output_uri = workflow_engine_params.get('outputUri')
