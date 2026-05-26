@@ -1,15 +1,19 @@
 
 import json
 import os
+import requests
 
 import boto3
 from logger import get_logger
+from utils import get_auth_token
 
 logger = get_logger()
 omics_client = boto3.client('omics')
 
+API_SERVER = os.environ['API_SERVER']
 
-def submit_omics_run(event):
+
+def submit_omics_run(event) -> dict:
     """
     Handle workflow submission requests from GA4GH WES API.
     Submits new workflows to AWS Omics.
@@ -54,6 +58,9 @@ def submit_omics_run(event):
         }
 
         # Override name if provided in tags
+        # TBD: I don't know this is needed.  Name and name may already the same?
+        # Also we use TaskName above.  Why do you have Name here?
+        # This is confusing.
         if "Name" in kwargs['tags']:
             kwargs['name'] = kwargs['tags']['Name']
 
@@ -91,7 +98,7 @@ def submit_omics_run(event):
         }
 
 
-def _validate_submission_request(event):
+def _validate_submission_request(event) -> tuple[bool, str]:
     """
     Validate workflow submission request.
 
@@ -125,7 +132,35 @@ def _validate_submission_request(event):
     return True, None
 
 
+def _pingback_to_ga4ghwes(data):
+    # Call GA4GH WES API Server
+    api_url = f'{API_SERVER}/internal/callbacks/omics-state-change'
+
+    headers = {'Content-Type': 'application/json'}
+    headers['X-Internal-API-Key'] = get_auth_token()
+
+    try:
+        response = requests.post(
+            api_url, headers=headers, data=json.dumps(data), timeout=10
+        )
+        response.raise_for_status()
+        logger.info(
+            "Successfully sent event to API server: %s", response.status_code
+        )
+    except requests.exceptions.RequestException as e:
+        logger.error("Error sending event to API server: %s", str(e))
+
+
 def ga4ghwes_event_handler(event):
     if event.get('action') == 'submit_workflow':
         logger.info("Routing to workflow submission handler")
-        return submit_omics_run(event)
+        response = submit_omics_run(event)
+        _pingback_to_ga4ghwes(response)
+        return response
+
+    return {
+        'statusCode': 400,
+        'error': 'UnknownAction',
+        'message': f'Unknown Action in GA4GHWES Event Handler: '
+                   f'{event.get("action")}'
+    }
