@@ -18,7 +18,7 @@ def submit_omics_run(event):
                 f"{json.dumps(event, default=str)[:500]}...")
     try:
         # Validate input parameters
-        is_valid, error_msg = validate_submission_request(event)
+        is_valid, error_msg = _validate_submission_request(event)
         if not is_valid:
             return {
                 'statusCode': 400,
@@ -91,7 +91,7 @@ def submit_omics_run(event):
         }
 
 
-def validate_submission_request(event):
+def _validate_submission_request(event):
     """
     Validate workflow submission request.
 
