@@ -2,6 +2,7 @@
 import json
 import os
 import requests
+from datetime import datetime, timezone
 
 import boto3
 from logger import get_logger
@@ -56,13 +57,6 @@ def submit_omics_run(event) -> dict:
             'tags': {'WESRunId': wes_run_id, **event.get('tags', {})},
             'retentionMode': 'REMOVE',
         }
-
-        # Override name if provided in tags
-        # TBD: I don't know this is needed.  Name and name may already the same?
-        # Also we use TaskName above.  Why do you have Name here?
-        # This is confusing.
-        if "Name" in kwargs['tags']:
-            kwargs['name'] = kwargs['tags']['Name']
 
         # Add optional parameters if provided
         if 'workflowVersionName' in workflow_engine_params:
@@ -132,12 +126,30 @@ def _validate_submission_request(event) -> tuple[bool, str]:
     return True, None
 
 
-def _pingback_to_ga4ghwes(data):
+def _pingback_to_ga4ghwes(lambda_response, event):
     # Call GA4GH WES API Server
-    api_url = f'{API_SERVER}/internal/callbacks/omics-state-change'
+    if "tags" in event and "callback_url" in event["tags"] and "WESRunId" in event["tags"]:
+        api_url = event["tags"]["callback_url"]
+    else:
+        logger.info(
+            "No callback url or GA4GH WES run_id provided. Skip pingback to GA4GH."
+        )
+        return
 
     headers = {'Content-Type': 'application/json'}
     headers['X-Internal-API-Key'] = get_auth_token()
+
+    data = {
+        "wes_run_id": event["tags"]["WESRunId"],
+        "event_time": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+    }
+
+    if lambda_response["statusCode"] == 200:
+        data["status"] = "PENDING"
+        data["omics_run_id"] = lambda_response["omics_run_id"]
+    else:
+        data["status"] = "FAILED"
+        data["failure_reason"] = lambda_response["message"]
 
     try:
         response = requests.post(
@@ -155,7 +167,7 @@ def ga4ghwes_event_handler(event):
     if event.get('action') == 'submit_workflow':
         logger.info("Routing to workflow submission handler")
         response = submit_omics_run(event)
-        _pingback_to_ga4ghwes(response)
+        _pingback_to_ga4ghwes(response, event)
         return response
 
     return {
