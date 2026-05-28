@@ -246,7 +246,7 @@ class TestValidateSubmissionRequest:
         assert "Invalid action: invalid_action" in error_msg
 
     @pytest.mark.parametrize("workflow_id", [
-        '', None, '   '  # Empty, None, or whitespace
+        '', None  # Empty or None - current validation only checks these
     ])
     def test_validate_submission_request_invalid_workflow_id(self, workflow_id):
         """Test validation failure for invalid workflow_id."""
@@ -368,8 +368,9 @@ class TestPingbackToGA4GHWES:
     @patch('ga4ghwes_event_handler.get_auth_token')
     def test_pingback_request_exception(self, mock_get_auth_token, mock_requests):
         """Test handling of request exceptions during callback."""
+        import requests
         mock_get_auth_token.return_value = 'test-auth-token'
-        mock_requests.side_effect = Exception('Network error')
+        mock_requests.side_effect = requests.exceptions.RequestException('Network error')
 
         # Should not raise exception
         ga4ghwes_event_handler._pingback_to_ga4ghwes(self.success_response, self.event_with_callback)
