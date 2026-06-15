@@ -1,15 +1,20 @@
 
 import json
 import os
+import requests
+from datetime import datetime, timezone
 
 import boto3
 from logger import get_logger
+from utils import get_auth_token
 
 logger = get_logger()
 omics_client = boto3.client('omics')
 
+API_SERVER = os.environ['API_SERVER']
 
-def submit_omics_run(event):
+
+def submit_omics_run(event) -> dict:
     """
     Handle workflow submission requests from GA4GH WES API.
     Submits new workflows to AWS Omics.
@@ -18,7 +23,7 @@ def submit_omics_run(event):
                 f"{json.dumps(event, default=str)[:500]}...")
     try:
         # Validate input parameters
-        is_valid, error_msg = validate_submission_request(event)
+        is_valid, error_msg = _validate_submission_request(event)
         if not is_valid:
             return {
                 'statusCode': 400,
@@ -52,10 +57,6 @@ def submit_omics_run(event):
             'tags': {'WESRunId': wes_run_id, **event.get('tags', {})},
             'retentionMode': 'REMOVE',
         }
-
-        # Override name if provided in tags
-        if "Name" in kwargs['tags']:
-            kwargs['name'] = kwargs['tags']['Name']
 
         # Add optional parameters if provided
         if 'workflowVersionName' in workflow_engine_params:
@@ -91,7 +92,7 @@ def submit_omics_run(event):
         }
 
 
-def validate_submission_request(event):
+def _validate_submission_request(event) -> tuple[bool, str]:
     """
     Validate workflow submission request.
 
@@ -125,7 +126,53 @@ def validate_submission_request(event):
     return True, None
 
 
+def _pingback_to_ga4ghwes(lambda_response, event):
+    # Call GA4GH WES API Server
+    if "tags" in event and "callback_url" in event["tags"] and "WESRunId" in event["tags"]:
+        api_url = event["tags"]["callback_url"]
+    else:
+        logger.info(
+            "No callback url or GA4GH WES run_id provided. Skip pingback to GA4GH."
+        )
+        return
+
+    headers = {'Content-Type': 'application/json'}
+    headers['X-Internal-API-Key'] = get_auth_token()
+
+    data = {
+        "wes_run_id": event["tags"]["WESRunId"],
+        "event_time": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+    }
+
+    if lambda_response["statusCode"] == 200:
+        data["status"] = "PENDING"
+        data["omics_run_id"] = lambda_response["omics_run_id"]
+    else:
+        data["status"] = "FAILED"
+        data["failure_reason"] = lambda_response["message"]
+
+    try:
+        response = requests.post(
+            api_url, headers=headers, data=json.dumps(data), timeout=10
+        )
+        response.raise_for_status()
+        logger.info(
+            "Successfully sent event to API server: %s", response.status_code
+        )
+    except requests.exceptions.RequestException as e:
+        logger.error("Error sending event to API server: %s", str(e))
+
+
 def ga4ghwes_event_handler(event):
     if event.get('action') == 'submit_workflow':
         logger.info("Routing to workflow submission handler")
-        return submit_omics_run(event)
+        response = submit_omics_run(event)
+        _pingback_to_ga4ghwes(response, event)
+        return response
+
+    return {
+        'statusCode': 400,
+        'error': 'UnknownAction',
+        'message': f'Unknown Action in GA4GHWES Event Handler: '
+                   f'{event.get("action")}'
+    }
