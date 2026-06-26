@@ -492,7 +492,10 @@ def update_status(event):
     )
 
     # Call GA4GH WES API Server
-    api_url = f'{API_SERVER}/internal/callbacks/omics-state-change'
+    if tags and 'callback_url' in tags:
+        api_url = tags["callback_url"]
+    else:
+        api_url = f'{API_SERVER}/internal/callbacks/omics-state-change'
     headers = {'Content-Type': 'application/json'}
     headers['X-Internal-API-Key'] = AUTH_TOKEN
 
