@@ -345,12 +345,13 @@ def create_workflow(event):
         logger.info(f"Creating Omics workflow with parameters: {kwargs}")
         response = omics_client.create_workflow(**kwargs)
         workflow_id = response['id']
-
-        logger.info(f"Successfully registered workflow {workflow_id} using ZIP: {s3_zip_path}")
+        workflow_arn = response['arn']
+        logger.info(f"Successfully registered workflow {workflow_arn} using ZIP: {s3_zip_path}")
 
         return {
             'statusCode': 200,
             'workflow_id': workflow_id,
+            'arn': workflow_arn,
             'zip_s3_path': s3_zip_path,
             'message': f'Workflow registered successfully with Docker images processed'
         }
@@ -410,6 +411,7 @@ def create_workflow_version(event):
         logger.info(f"Creating Omics workflow version with parameters: {kwargs}")
         response = omics_client.create_workflow_version(**kwargs)
         version_name = response['versionName']
+        workflow_arn = response['arn']
 
         logger.info(f"Successfully created workflow version {version_name} for workflow {event['omics_workflow_id']}")
 
@@ -417,6 +419,7 @@ def create_workflow_version(event):
             'statusCode': 200,
             'version_name': version_name,
             'omics_workflow_id': event['omics_workflow_id'],
+            'arn': workflow_arn,
             'zip_s3_path': s3_zip_path,
             'message': f'Workflow version created successfully with Docker images processed'
         }
