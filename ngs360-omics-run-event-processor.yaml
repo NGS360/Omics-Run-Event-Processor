@@ -17,6 +17,16 @@ Parameters:
     Type: String
     NoEcho: true
     Description: Authentication token for GA4GH WES API Server
+  Ngs360ApiToken:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: >-
+      NGS360 REST API key (ngs360_-prefixed) used to authenticate job status
+      updates. Distinct from ApiServerAuthToken, which is the GA4GH WES
+      credential and uses a different header. Optional: while
+      PUT /api/v1/jobs/{job_id} is unauthenticated the updates still succeed
+      without it, so the stack can deploy before the key is issued.
   DataLakeBucket:
     Type: String
     Description: S3 Bucket name for storing omics run event data
@@ -64,10 +74,11 @@ Resources:
   ApiServerAuthTokenSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Description: NGS360 GA4GH WES API Server credentials
+      Description: NGS360 API credentials (GA4GH WES and NGS360 REST API)
       SecretString: !Sub |
         {
-          "AUTH_TOKEN": "${ApiServerAuthToken}"
+          "AUTH_TOKEN": "${ApiServerAuthToken}",
+          "NGS360_API_TOKEN": "${Ngs360ApiToken}"
         }
 
   DeadLetterQueue:
