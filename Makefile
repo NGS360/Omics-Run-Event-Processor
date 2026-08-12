@@ -4,8 +4,13 @@ BUCKET_PREFIX=omics-run-events
 # Include local configuration
 -include Makefile.local
 
+install-deps:
+	pip3 install -r requirements-dev.txt
+	pip3 install -r requirements.txt
+
 test:
 	python3 -m pytest -vv --cov ./
+	coverage xml
 	coverage html
 
 create-lambda-package:
