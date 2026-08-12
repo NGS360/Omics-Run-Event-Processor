@@ -40,7 +40,7 @@ class TestSubmitOmicsRun:
         self.valid_event = {
             'action': 'submit_workflow',
             'wes_run_id': 'wes-run-123',
-            'workflow_id': 'wf-abc123def456',
+            'workflow_id': '1234567',
             'workflow_engine_parameters': {
                 'outputUri': 's3://test-bucket/outputs/',
                 'name': 'test-workflow-run'
@@ -64,7 +64,7 @@ class TestSubmitOmicsRun:
         event = {
             'action': 'submit_workflow',
             'wes_run_id': 'wes-run-123',
-            'workflow_id': 'wf-abc123',
+            'workflow_id': '1234567',
             'workflow_engine_parameters': {
                 'outputUri': 's3://test-bucket/outputs/'
             }
@@ -83,7 +83,7 @@ class TestSubmitOmicsRun:
         # Verify omics client call
         mock_omics.start_run.assert_called_once()
         call_kwargs = mock_omics.start_run.call_args[1]
-        assert call_kwargs['workflowId'] == 'wf-abc123'
+        assert call_kwargs['workflowId'] == '1234567'
         assert call_kwargs['roleArn'] == os.environ['OMICS_ROLE_ARN']
         assert call_kwargs['outputUri'] == 's3://test-bucket/outputs/'
         assert call_kwargs['name'] == 'wes-run-wes-run-123'  # default name
@@ -161,6 +161,40 @@ class TestSubmitOmicsRun:
         assert result['statusCode'] == 400
         assert result['error'] == 'ValidationError'
         assert 'outputUri' in result['message']
+        mock_omics.start_run.assert_not_called()
+
+    @patch('ga4ghwes_event_handler.omics_client')
+    def test_submit_omics_run_workflow_arn(self, mock_omics):
+        """Test an ARN workflow_id yields both the id and the version name."""
+        mock_omics.start_run.return_value = {'id': 'omics-run-789'}
+
+        event = self.valid_event.copy()
+        event['workflow_id'] = (
+            'arn:aws:omics:us-east-1:123456789012:workflow/1234567/version/v1.2.0'
+        )
+
+        result = ga4ghwes_event_handler.submit_omics_run(event)
+
+        assert result['statusCode'] == 200
+        call_kwargs = mock_omics.start_run.call_args[1]
+        assert call_kwargs['workflowId'] == '1234567'
+        assert call_kwargs['workflowVersionName'] == 'v1.2.0'
+
+    @patch('ga4ghwes_event_handler.omics_client')
+    def test_submit_omics_run_malformed_workflow_id(self, mock_omics):
+        """Test a workflow_id that is neither numeric nor an ARN is rejected.
+
+        An id with no '/' used to raise IndexError inside the try, which was
+        reported as a 500 OmicsSubmissionError rather than a bad request.
+        """
+        event = self.valid_event.copy()
+        event['workflow_id'] = 'wf-abc123'
+
+        result = ga4ghwes_event_handler.submit_omics_run(event)
+
+        assert result['statusCode'] == 400
+        assert result['error'] == 'ValidationError'
+        assert 'Unexpected Workflow ID format' in result['message']
         mock_omics.start_run.assert_not_called()
 
     @patch('ga4ghwes_event_handler.omics_client')
@@ -447,7 +481,7 @@ class TestIntegration:
         event = {
             'action': 'submit_workflow',
             'wes_run_id': 'wes-run-123',
-            'workflow_id': 'wf-abc123def456',
+            'workflow_id': '1234567',
             'workflow_engine_parameters': {
                 'outputUri': 's3://test-bucket/outputs/',
                 'name': 'integration-test-run'
@@ -469,7 +503,7 @@ class TestIntegration:
         # Verify Omics API was called correctly
         mock_omics.start_run.assert_called_once()
         omics_call_kwargs = mock_omics.start_run.call_args[1]
-        assert omics_call_kwargs['workflowId'] == 'wf-abc123def456'
+        assert omics_call_kwargs['workflowId'] == '1234567'
         assert omics_call_kwargs['name'] == 'integration-test-run'
         assert omics_call_kwargs['outputUri'] == 's3://test-bucket/outputs/'
         assert omics_call_kwargs['tags']['WESRunId'] == 'wes-run-123'
