@@ -40,7 +40,12 @@ def submit_omics_run(event) -> dict:
         if workflow_url.isdigit():
             workflow_id = workflow_url
         else:
-            workflow_id = workflow_url.split('/')[1]
+            # An id with no '/' at all used to raise IndexError here, which the
+            # except below reported as a 500 OmicsSubmissionError. It is a
+            # malformed request, so answer it the same way as a non-numeric id.
+            workflow_url_parts = workflow_url.split('/')
+            workflow_id = (workflow_url_parts[1]
+                           if len(workflow_url_parts) > 1 else '')
             if not workflow_id.isdigit():
                 msg = (f"Unexpected Workflow ID format {workflow_url}. Example: "
                        f"arn:aws:omics:<region>:<account_id>:workflow/<workflow_id>/version/<version_name>")
@@ -49,8 +54,8 @@ def submit_omics_run(event) -> dict:
                     'error': 'ValidationError',
                     'message': msg
                 }
-            if len(workflow_url.split('/')) == 4:
-                workflow_version = workflow_url.split('/')[3]
+            if len(workflow_url_parts) == 4:
+                workflow_version = workflow_url_parts[3]
                 workflow_engine_params["workflowVersionName"] = workflow_version
 
         # Set output URI - use provided or default
