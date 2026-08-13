@@ -109,9 +109,34 @@ This command will:
 
 ### Update Existing Stack
 
+Changes to the infrastructure itself -- IAM, environment variables, the
+EventBridge rules -- go through CloudFormation:
+
 ```bash
 make cf-update
 ```
+
+### Update Function Code
+
+Day-to-day deployments do not go through CloudFormation or S3. `lambda-update`
+sends the package straight to the function, publishes a version, and moves the
+alias for the current branch onto it:
+
+```bash
+make lambda-update
+```
+
+Consumers are pinned to aliases rather than to `$LATEST`, and the alias names do
+not match the branch names:
+
+| Branch    | Alias     |
+|-----------|-----------|
+| `develop` | `dev`     |
+| `staging` | `staging` |
+| `main`    | `prod`    |
+
+Any other branch is refused rather than guessed at. The branch comes from `git`
+locally and from `GITHUB_REF_NAME` in CI, so the same target serves both.
 
 ### Manual Deployment
 
