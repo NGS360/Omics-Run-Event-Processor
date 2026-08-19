@@ -81,14 +81,10 @@ def submit_omics_run(event) -> dict:
         }
 
         # Add optional parameters if provided
-        if 'workflowVersionName' in workflow_engine_params:
-            kwargs['workflowVersionName'] = workflow_engine_params['workflowVersionName']
-        if 'cacheId' in workflow_engine_params:
-            kwargs['cacheId'] = workflow_engine_params['cacheId']
-        if 'storageType' in workflow_engine_params:
-            kwargs['storageType'] = workflow_engine_params['storageType']
-        if 'storageCapacity' in workflow_engine_params:
-            kwargs['storageCapacity'] = workflow_engine_params['storageCapacity']
+        engine_params = ['workflowVersionName', 'cacheId', 'storageType', 'storageCapacity', "networkingMode", "configurationName"]
+        for setting in engine_params:
+            if setting in workflow_engine_params:
+                kwargs[setting] = workflow_engine_params[setting]
 
         # Submit to Omics
         response = omics_client.start_run(**kwargs)
