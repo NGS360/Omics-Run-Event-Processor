@@ -13,12 +13,6 @@ omics_client = boto3.client('omics')
 
 API_SERVER = os.environ['API_SERVER']
 
-
-import sys, boto3, botocore
-logger.info(f"boto3={boto3.__version__} @ {boto3.__file__}")
-logger.info(f"botocore={botocore.__version__} @ {botocore.__file__}")
-
-
 def submit_omics_run(event) -> dict:
     """
     Handle workflow submission requests from GA4GH WES API.
