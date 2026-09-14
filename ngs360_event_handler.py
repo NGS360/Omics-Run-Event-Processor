@@ -331,15 +331,20 @@ def create_workflow(event):
         # Process workflow using common logic
         s3_zip_path = _process_workflow(event)
 
+        # Merge caller-supplied tags (git_* from APIServer's version
+        # attributes) with the base NGS360_workflow_id tag. Order matters:
+        # NGS360_workflow_id is written last so it wins over any duplicate
+        # key the caller might have sent by mistake.
+        tags = dict(event.get('tags') or {})
+        tags["NGS360_workflow_id"] = event['id']
+
         # Create new workflow with HealthOmics
         kwargs = {
             'name': event['name'],
             'engine': 'CWL',
             'definitionUri': s3_zip_path,
             'main': 'workflow.packed.cwl',
-            'tags': {
-                "NGS360_workflow_id": event['id']
-            }
+            'tags': tags,
         }
 
         logger.info(f"Creating Omics workflow with parameters: {kwargs}")
@@ -397,15 +402,20 @@ def create_workflow_version(event):
         # Process workflow using common logic
         s3_zip_path = _process_workflow(event)
 
+        # Merge caller-supplied tags (git_* from APIServer's version
+        # attributes) with the base NGS360_workflow_id tag. Order matters:
+        # NGS360_workflow_id is written last so it wins over any duplicate
+        # key the caller might have sent by mistake.
+        tags = dict(event.get('tags') or {})
+        tags["NGS360_workflow_id"] = event['id']
+
         # Create workflow version with HealthOmics
         kwargs = {
             'workflowId': event['omics_workflow_id'],  # Existing workflow ID
             'versionName': event['version_name'], # Version name
             'definitionUri': s3_zip_path,     # S3 ZIP path
             'main': 'workflow.packed.cwl',    # Main CWL file in ZIP
-            'tags': {
-                "NGS360_workflow_id": event['id'],
-            }
+            'tags': tags,
         }
 
         logger.info(f"Creating Omics workflow version with parameters: {kwargs}")
