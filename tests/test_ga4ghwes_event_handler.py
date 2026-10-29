@@ -465,6 +465,82 @@ class TestGA4GHWESEventHandler:
         assert 'Unknown Action in GA4GHWES Event Handler: None' in result['message']
 
 
+class TestCancelOmicsRun:
+    """Test Omics run cancellation."""
+
+    @patch('ga4ghwes_event_handler.omics_client')
+    def test_cancel_omics_run_success(self, mock_omics):
+        """Successful cancellation returns 200 and calls omics.cancel_run."""
+        mock_omics.cancel_run.return_value = {}
+        event = {
+            'action': 'cancel_omics_run',
+            'wes_run_id': 'wes-run-123',
+            'omics_run_id': 'omics-run-789',
+        }
+
+        result = ga4ghwes_event_handler.cancel_omics_run(event)
+
+        assert result['statusCode'] == 200
+        assert result['omics_run_id'] == 'omics-run-789'
+        assert result['wes_run_id'] == 'wes-run-123'
+        mock_omics.cancel_run.assert_called_once_with(id='omics-run-789')
+
+    @patch('ga4ghwes_event_handler.omics_client')
+    def test_cancel_omics_run_missing_omics_run_id(self, mock_omics):
+        """Missing omics_run_id yields 400 and no boto3 call."""
+        event = {
+            'action': 'cancel_omics_run',
+            'wes_run_id': 'wes-run-123',
+        }
+
+        result = ga4ghwes_event_handler.cancel_omics_run(event)
+
+        assert result['statusCode'] == 400
+        assert result['error'] == 'ValidationError'
+        assert 'omics_run_id' in result['message']
+        mock_omics.cancel_run.assert_not_called()
+
+    @patch('ga4ghwes_event_handler.omics_client')
+    def test_cancel_omics_run_omics_api_error(self, mock_omics):
+        """AWS Omics CancelRun exception is surfaced as 500."""
+        mock_omics.cancel_run.side_effect = Exception('run is already terminal')
+        event = {
+            'action': 'cancel_omics_run',
+            'wes_run_id': 'wes-run-123',
+            'omics_run_id': 'omics-run-789',
+        }
+
+        result = ga4ghwes_event_handler.cancel_omics_run(event)
+
+        assert result['statusCode'] == 500
+        assert result['error'] == 'OmicsCancellationError'
+        assert result['message'] == 'run is already terminal'
+        assert result['omics_run_id'] == 'omics-run-789'
+
+    @patch('ga4ghwes_event_handler._pingback_to_ga4ghwes')
+    @patch('ga4ghwes_event_handler.cancel_omics_run')
+    def test_ga4ghwes_event_handler_routes_cancel_action(
+        self, mock_cancel, mock_pingback
+    ):
+        """The main router dispatches cancel_omics_run to the cancel handler."""
+        mock_cancel.return_value = {
+            'statusCode': 200, 'omics_run_id': 'omics-run-789'
+        }
+        event = {
+            'action': 'cancel_omics_run',
+            'wes_run_id': 'wes-run-123',
+            'omics_run_id': 'omics-run-789',
+        }
+
+        result = ga4ghwes_event_handler.ga4ghwes_event_handler(event)
+
+        mock_cancel.assert_called_once_with(event)
+        assert result['statusCode'] == 200
+        # Cancellation confirmation arrives via the Omics EventBridge event,
+        # so the cancel path must not ping GA4GH WES itself.
+        mock_pingback.assert_not_called()
+
+
 class TestIntegration:
     """Integration tests combining multiple components."""
 

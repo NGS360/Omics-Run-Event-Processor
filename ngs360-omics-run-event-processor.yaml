@@ -143,7 +143,10 @@ Resources:
                   - omics:ListRuns
                   - omics:ListRunTasks
                   - omics:StartRun
+                  - omics:CancelRun
                   - omics:TagResource
+                  - omics:DeleteRun
+                  - omics:GetRunTask
                   - omics:CreateWorkflow
                   - omics:CreateWorkflowVersion
                   - omics:GetWorkflow
