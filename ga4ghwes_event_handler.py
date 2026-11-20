@@ -181,12 +181,62 @@ def _pingback_to_ga4ghwes(lambda_response, event):
         logger.error("Error sending event to API server: %s", str(e))
 
 
+def cancel_omics_run(event) -> dict:
+    """
+    Cancel an in-flight AWS Omics run.
+
+    Invoked by the GA4GH WES service when a user cancels a run. The WES DB
+    row is already moved to CANCELING by the caller; this actually stops the
+    run on the Omics side. The resulting Omics "Run Status Change" event
+    (CANCELLED) comes back through EventBridge and is what finally moves the
+    WES run to CANCELED, so this handler does not ping back directly.
+    """
+    logger.info(f"Received Omics run cancellation request: "
+                f"{json.dumps(event, default=str)[:500]}...")
+
+    wes_run_id = event.get('wes_run_id')
+    omics_run_id = event.get('omics_run_id')
+
+    if not omics_run_id:
+        msg = "Missing required field: omics_run_id"
+        logger.error(msg)
+        return {
+            'statusCode': 400,
+            'error': 'ValidationError',
+            'message': msg,
+        }
+
+    try:
+        omics_client.cancel_run(id=omics_run_id)
+        logger.info(f"Cancelled Omics run {omics_run_id} "
+                    f"for WES run {wes_run_id}")
+        return {
+            'statusCode': 200,
+            'omics_run_id': omics_run_id,
+            'wes_run_id': wes_run_id,
+            'message': 'Omics run cancelled successfully',
+        }
+    except Exception as e:
+        logger.error(f"Error cancelling Omics run {omics_run_id}: {str(e)}")
+        return {
+            'statusCode': 500,
+            'error': 'OmicsCancellationError',
+            'message': str(e),
+            'omics_run_id': omics_run_id,
+            'wes_run_id': wes_run_id,
+        }
+
+
 def ga4ghwes_event_handler(event):
     if event.get('action') == 'submit_workflow':
         logger.info("Routing to workflow submission handler")
         response = submit_omics_run(event)
         _pingback_to_ga4ghwes(response, event)
         return response
+
+    if event.get('action') == 'cancel_omics_run':
+        logger.info("Routing to Omics run cancellation handler")
+        return cancel_omics_run(event)
 
     return {
         'statusCode': 400,
